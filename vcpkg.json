@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "etw-telemetry-collector",
+  "version": "0.1.0",
+  "description": "ETW-based provenance telemetry collector for Windows (UNICORN-inspired)",
+  "dependencies": [
+    "krabsetw",
+    "sqlite3",
+    "nlohmann-json",
+    "stduuid",
+    {
+      "name": "catch2",
+      "host": false
+    }
+  ],
+  "builtin-baseline": "0000000000000000000000000000000000000000",
+  "overrides": []
+}

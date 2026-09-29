@@ -1,0 +1,69 @@
+# ---------------------------------------------------------------------------
+# Build output
+# ---------------------------------------------------------------------------
+/build/
+/out/
+/bin/
+/obj/
+/lib/
+*.obj
+*.o
+*.exe
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.a
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+*.cmake.stamp
+
+# ---------------------------------------------------------------------------
+# vcpkg
+# ---------------------------------------------------------------------------
+/vcpkg_installed/
+**/vcpkg_installed/
+/vcpkg/
+vcpkg-manifest-install.log
+
+# ---------------------------------------------------------------------------
+# Visual Studio / IDE
+# ---------------------------------------------------------------------------
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln
+*.slnx
+*.vcxproj*
+CMakeSettings.json
+VSInheritEnvironments.txt
+
+# JetBrains
+.idea/
+cmake-build-*/
+
+# ---------------------------------------------------------------------------
+# Runtime artifacts (data / logs sinh ra khi chạy collector)
+# ---------------------------------------------------------------------------
+/data/
+/logs/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.etl
+*.log
+
+# ---------------------------------------------------------------------------
+# OS
+# ---------------------------------------------------------------------------
+Thumbs.db
+Desktop.ini
+.DS_Store

@@ -1,0 +1,21 @@
+{
+  "ring_capacity": 65536,
+  "storage": {
+    "enable_sqlite": true,
+    "sqlite_path": "data/telemetry.sqlite"
+  },
+  "sensor": {
+    "trace_process": true,
+    "trace_file": true,
+    "trace_registry": true,
+    "trace_network": true
+  },
+  "graph": {
+    "prune_interval_ms": 5000,
+    "soft_vertex_limit": 200000
+  },
+  "logging": {
+    "path": "logs/collector.log",
+    "level": "info"
+  }
+}
