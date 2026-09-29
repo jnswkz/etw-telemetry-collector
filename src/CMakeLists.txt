@@ -35,19 +35,14 @@ target_compile_definitions(etwc_core PUBLIC
     _UNICODE
 )
 
-# Link dependencies if found (guarded so the tree configures even before vcpkg install)
-if(TARGET krabs::krabs)
-    target_link_libraries(etwc_core PUBLIC krabs::krabs)
-endif()
-if(TARGET unofficial::sqlite3::sqlite3)
-    target_link_libraries(etwc_core PUBLIC unofficial::sqlite3::sqlite3)
-endif()
-if(TARGET nlohmann_json::nlohmann_json)
-    target_link_libraries(etwc_core PUBLIC nlohmann_json::nlohmann_json)
-endif()
-if(TARGET stduuid)
-    target_link_libraries(etwc_core PUBLIC stduuid)
-endif()
+# vcpkg dependencies (find_package/find_path REQUIRED ở CMakeLists.txt gốc).
+# krabsetw header-only: chỉ cần include dir.
+target_include_directories(etwc_core PUBLIC ${KRABSETW_INCLUDE_DIRS})
+target_link_libraries(etwc_core PUBLIC
+    unofficial::sqlite3::sqlite3
+    nlohmann_json::nlohmann_json
+    stduuid
+)
 
 # Windows system libs used by the sensor / service layers
 target_link_libraries(etwc_core PUBLIC
@@ -56,6 +51,9 @@ target_link_libraries(etwc_core PUBLIC
     ws2_32       # Network address helpers
     ntdll        # PEB access
 )
+
+# Cờ cảnh báo/chuẩn chung.
+target_link_libraries(etwc_core PRIVATE etwc_warnings)
 
 # ---------------------------------------------------------------------------
 # etwcollector : the Windows Service executable (entry point only)
@@ -66,5 +64,5 @@ add_executable(etwcollector
     main.cpp
 )
 
-target_link_libraries(etwcollector PRIVATE etwc_core)
+target_link_libraries(etwcollector PRIVATE etwc_core etwc_warnings)
 set_target_properties(etwcollector PROPERTIES OUTPUT_NAME "etwcollector")

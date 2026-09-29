@@ -7,7 +7,7 @@ add_executable(etwc_tests
     test_uuid.cpp
 )
 
-target_link_libraries(etwc_tests PRIVATE etwc_core)
+target_link_libraries(etwc_tests PRIVATE etwc_core etwc_warnings)
 
 if(TARGET Catch2::Catch2WithMain)
     target_link_libraries(etwc_tests PRIVATE Catch2::Catch2WithMain)

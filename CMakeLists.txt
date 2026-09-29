@@ -23,17 +23,29 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 
 # ---------------------------------------------------------------------------
-# Dependencies (via vcpkg manifest)
+# Dependencies (via vcpkg manifest) — REQUIRED để lỗi lộ ngay khi configure.
 # ---------------------------------------------------------------------------
-find_package(krabs CONFIG QUIET)          # ETW consumer wrapper
-find_package(unofficial-sqlite3 CONFIG QUIET)
-find_package(nlohmann_json CONFIG QUIET)
-find_package(stduuid CONFIG QUIET)
+# krabsetw là header-only: không có CMake config, dùng find_path.
+find_path(KRABSETW_INCLUDE_DIRS "krabs.hpp" REQUIRED)
+find_package(unofficial-sqlite3 CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
+find_package(stduuid CONFIG REQUIRED)
 
 # ---------------------------------------------------------------------------
 # Options
 # ---------------------------------------------------------------------------
 option(ETWC_BUILD_TESTS "Build unit tests" ON)
+option(ETWC_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+
+# ---------------------------------------------------------------------------
+# Interface target mang cờ cảnh báo/chuẩn chung (tái dùng cho core + tests).
+# ---------------------------------------------------------------------------
+add_library(etwc_warnings INTERFACE)
+if(MSVC)
+    target_compile_options(etwc_warnings INTERFACE
+        /W4 /permissive- /EHsc /utf-8
+        $<$<BOOL:${ETWC_WARNINGS_AS_ERRORS}>:/WX>)
+endif()
 
 # ---------------------------------------------------------------------------
 # Core library (everything except the service entry point)

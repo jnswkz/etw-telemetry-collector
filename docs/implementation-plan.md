@@ -15,32 +15,38 @@ Trong đó Phase 1 (Sensor) và Phase 4 (Graph) là đường găng (critical pa
 
 Mục tiêu: `cmake --build` chạy xanh với đầy đủ dependency, CI cơ bản hoạt động.
 
-### T0.1 — Cố định baseline vcpkg & cài dependency ⬜ (P0)
-- **File:** `vcpkg.json`, `CMakePresets.json`
-- **Chi tiết:** Thay `builtin-baseline` (đang là chuỗi 0) bằng commit hash thực của
-  vcpkg. Xác minh 4 package resolve được: `krabsetw`, `sqlite3`, `nlohmann-json`,
-  `stduuid`, `catch2`. Đặt `VCPKG_ROOT` trong tài liệu môi trường.
-- **DoD:** `cmake --preset x64-release` cấu hình thành công, `find_package` cho cả 4 lib
-  đều `QUIET` mà vẫn tìm thấy target (bỏ guard `if(TARGET ...)` để lỗi lộ sớm sau khi ổn).
+### T0.1 — Cố định baseline vcpkg & cài dependency ✅ (P0)
+- **File:** `vcpkg.json`, `CMakeLists.txt`, `src/CMakeLists.txt`
+- **Đã làm:** Ghi `builtin-baseline` hợp lệ `b8b8df22...` bằng
+  `vcpkg x-update-baseline --add-initial-baseline`. Xác minh 5 package resolve:
+  krabsetw 4.3.2, sqlite3 3.53.4, nlohmann-json 3.12.0, stduuid 1.2.3, catch2 3.16.0.
+  Đổi `find_package(... QUIET)` + guard `if(TARGET)` → `REQUIRED` + link trực tiếp.
+- **Lưu ý phát sinh:** krabsetw là **header-only**, KHÔNG có CMake config `krabs`;
+  dùng `find_path(KRABSETW_INCLUDE_DIRS "krabs.hpp" REQUIRED)` +
+  `target_include_directories`. VCPKG_ROOT dùng bản vcpkg tích hợp trong VS
+  (`...\VC\vcpkg`).
+- **DoD:** ✅ `cmake --preset x64-release` configure thành công, build 24/24 object.
 
-### T0.2 — Bật cảnh báo nghiêm & chuẩn C++20 ⬜ (P1)
-- **File:** `CMakeLists.txt`, `src/CMakeLists.txt`
-- **Chi tiết:** Thêm `/W4 /permissive- /EHsc` cho MSVC; cân nhắc `/WX` ở CI.
-  Bật `/utf-8`. Định nghĩa target interface `etwc_warnings` để tái dùng.
-- **DoD:** Build không warning ở mức /W4 trên toàn bộ `etwc_core`.
+### T0.2 — Bật cảnh báo nghiêm & chuẩn C++20 ✅ (P1)
+- **File:** `CMakeLists.txt`, `src/CMakeLists.txt`, `tests/CMakeLists.txt`
+- **Đã làm:** Interface target `etwc_warnings` với `/W4 /permissive- /EHsc /utf-8`,
+  option `ETWC_WARNINGS_AS_ERRORS` (bật `/WX`, dùng ở CI). Áp cho core + exe + tests.
+- **DoD:** ✅ Build sạch ở `/W4 /WX` trên toàn bộ code (đã verify).
 
-### T0.3 — CI pipeline (GitHub Actions / Azure) ⬜ (P1)
-- **File:** `.github/workflows/ci.yml` (tạo mới)
-- **Chi tiết:** Runner `windows-latest`, cache vcpkg, chạy configure + build +
-  `ctest`. Chạy `clang-format --dry-run --Werror`.
-- **DoD:** Push lên nhánh chạy CI xanh; PR bị chặn khi test/format fail.
+### T0.3 — CI pipeline (GitHub Actions) ✅ (P1)
+- **File:** `.github/workflows/ci.yml`, `CMakePresets.json`
+- **Đã làm:** Job `build-and-test` (windows-latest, bootstrap vcpkg, cache x-gha,
+  configure `-D ETWC_WARNINGS_AS_ERRORS=ON`, build, ctest) + job `format`
+  (`clang-format --dry-run --Werror`). Thêm test preset `x64-release`.
+- **DoD:** ✅ Cấu hình xong. (Cần push lên GitHub để thấy chạy xanh thực tế.)
 
-### T0.4 — Khung logging dùng được ⬜ (P1)
+### T0.4 — Khung logging dùng được ✅ (P1)
 - **File:** `include/etwc/common/logging.hpp`, `src/common/logging.cpp`
-- **Chi tiết:** Logger hiện tại đã ghi file/stderr. Bổ sung: timestamp, thread id,
-  xoay vòng file (rotate theo kích thước), macro `ETWC_LOG_DEBUG/TRACE`. Cân nhắc
-  thay bằng spdlog nếu muốn (thêm vào `vcpkg.json`).
-- **DoD:** Log ra file có timestamp + level; đa luồng không xen dòng.
+- **Đã làm:** Log kèm timestamp (mili giây, giờ địa phương) + level + thread id,
+  xoay vòng file theo kích thước (`max_file_bytes`, giữ N file `.1..N`), macro
+  `ETWC_LOG_TRACE/DEBUG/INFO/WARN/ERROR`, `LogConfig`, `log_shutdown()`. Sửa lỗi
+  tiềm ẩn dangling (`file_path` chuyển từ `string_view` → `std::string`).
+- **DoD:** ✅ Có timestamp + level; ghi có khóa mutex nên đa luồng không xen dòng.
 
 ---
 

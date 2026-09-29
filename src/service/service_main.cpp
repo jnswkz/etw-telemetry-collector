@@ -48,6 +48,7 @@ void WINAPI service_main(DWORD, LPWSTR*) {
     }
 
     collector.stop();
+    log_shutdown();
     set_state(SERVICE_STOPPED);
 }
 
@@ -73,6 +74,7 @@ int run_as_console() {
     while (!stop) Sleep(200);
 
     collector.stop();
+    log_shutdown();
     return 0;
 }
 

@@ -72,13 +72,27 @@ etw-telemetry-collector/
 ## Build (yêu cầu)
 
 - Windows 10/11 hoặc Windows Server
-- Visual Studio 2022 (MSVC v143, hỗ trợ C++20)
-- CMake >= 3.24, vcpkg (khuyến nghị)
+- Visual Studio 2022/2026 (MSVC hỗ trợ C++20) — đã kèm CMake + Ninja + vcpkg
+- vcpkg (dùng bản tích hợp trong VS hoặc bản riêng)
+
+Đặt `VCPKG_ROOT` trỏ tới vcpkg. Nếu dùng bản tích hợp trong Visual Studio:
+
+```powershell
+$env:VCPKG_ROOT = "C:\Program Files\Microsoft Visual Studio\18\Community\VC\vcpkg"
+```
+
+Sau đó configure + build + test (lần đầu vcpkg sẽ build krabsetw/sqlite3 ~1–2 phút):
 
 ```bash
 cmake --preset x64-release
 cmake --build --preset x64-release
+ctest --preset x64-release --output-on-failure
 ```
+
+Bật cảnh báo-thành-lỗi (như CI) bằng `-D ETWC_WARNINGS_AS_ERRORS=ON` khi configure.
+
+> Ghi chú: `krabsetw` là thư viện **header-only**, được nạp qua
+> `find_path(KRABSETW_INCLUDE_DIRS "krabs.hpp")` chứ không phải `find_package`.
 
 Chạy service ở chế độ console để debug (cần quyền Administrator để mở ETW kernel session):
 
