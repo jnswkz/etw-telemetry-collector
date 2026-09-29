@@ -17,6 +17,7 @@ std::mutex g_mutex;
 LogConfig g_cfg;
 FILE* g_file = nullptr;
 std::size_t g_written_bytes = 0;
+bool g_echo_console = false;
 
 const char* level_name(LogLevel l) {
     switch (l) {
@@ -113,6 +114,11 @@ void log_init(std::string_view file_path, LogLevel min_level) {
     log_init(cfg);
 }
 
+void log_set_console_echo(bool enabled) {
+    std::lock_guard lock(g_mutex);
+    g_echo_console = enabled;
+}
+
 void log_write(LogLevel level, std::string_view msg) {
     if (level < g_cfg.min_level)
         return;
@@ -130,11 +136,16 @@ void log_write(LogLevel level, std::string_view msg) {
     if (g_file && g_written_bytes + line.size() > g_cfg.max_file_bytes) {
         rotate_locked();
     }
-    FILE* out = g_file ? g_file : stderr;
+    FILE* out = g_file ? g_file : stdout;
     std::fwrite(line.data(), 1, line.size(), out);
     std::fflush(out);
     if (g_file)
         g_written_bytes += line.size();
+    // Echo ra stdout khi có file log (để --console vẫn thấy trực tiếp).
+    if (g_echo_console && g_file) {
+        std::fwrite(line.data(), 1, line.size(), stdout);
+        std::fflush(stdout);
+    }
 }
 
 void log_shutdown() {

@@ -9,34 +9,23 @@ jobs:
   build-and-test:
     runs-on: windows-latest
 
-    env:
-      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
-      # Cache binary vcpkg vào GitHub Actions cache.
-      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
-
     steps:
       - uses: actions/checkout@v4
 
       # Thiết lập môi trường MSVC (cl.exe/link.exe) để Ninja KHÔNG chọn nhầm
       # MinGW gcc — vcpkg build lib bằng MSVC nên phải link bằng MSVC.
+      # Lưu ý: bước này có thể tự set VCPKG_ROOT sang vcpkg bundled của VS,
+      # nên ta ghi đè VCPKG_ROOT ở bước sau (sau bước này để thắng).
       - name: Setup MSVC dev environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: amd64
 
-      - name: Bootstrap vcpkg
+      # Dùng vcpkg cài sẵn trên runner (C:\vcpkg); ép VCPKG_ROOT ghi đè giá trị
+      # mà msvc-dev-cmd có thể đã đặt.
+      - name: Set VCPKG_ROOT to runner vcpkg
         shell: pwsh
-        run: |
-          git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
-          & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics
-
-      # Cho phép vcpkg ghi/đọc GitHub Actions cache.
-      - name: Export GitHub Actions cache env
-        uses: actions/github-script@v7
-        with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+        run: '"VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8'
 
       - name: Configure (CMake preset)
         shell: pwsh

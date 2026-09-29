@@ -3,6 +3,7 @@
 #include <atomic>
 #include <csignal>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 
 #include "etwc/common/config.hpp"
@@ -69,6 +70,24 @@ int run_as_service() {
 int run_as_console() {
     Config cfg = Config::defaults();
     log_init(cfg.log_path.string());
+    log_set_console_echo(true);  // in log ra màn hình cho chế độ console
+
+    // Bắt crash cấp tiến trình (SEH) để ghi lại nguyên nhân trước khi chết.
+    ::SetUnhandledExceptionFilter([](EXCEPTION_POINTERS* ep) -> LONG {
+        char buf[160];
+        std::snprintf(buf, sizeof(buf), "FATAL unhandled exception code=0x%08lX addr=%p",
+                      ep->ExceptionRecord->ExceptionCode,
+                      static_cast<void*>(ep->ExceptionRecord->ExceptionAddress));
+        ETWC_LOG_ERROR(buf);
+        log_shutdown();
+        return EXCEPTION_EXECUTE_HANDLER;
+    });
+
+    std::puts("=== ETW Telemetry Collector (console) ===");
+    std::puts("Log: logs/collector.log | Nhan Ctrl+C de dung.");
+    std::puts("Luu y: can chay bang quyen Administrator de mo ETW session.\n");
+    std::fflush(stdout);
+
     Collector collector(cfg);
     collector.start();
 

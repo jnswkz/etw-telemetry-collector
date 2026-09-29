@@ -20,6 +20,9 @@ struct LogConfig {
 void log_init(const LogConfig& cfg);
 void log_init(std::string_view file_path, LogLevel min_level = LogLevel::Info);
 
+// Bật/tắt echo log ra stdout (dùng cho chế độ --console để thấy trực tiếp).
+void log_set_console_echo(bool enabled);
+
 // Ghi một dòng log (kèm timestamp + level + thread id). Thread-safe.
 void log_write(LogLevel level, std::string_view msg);
 

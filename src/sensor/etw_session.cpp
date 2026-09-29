@@ -2,9 +2,9 @@
 
 #include <windows.h>
 // krabs kéo theo <tdh.h>, <evntrace.h>...
+#include <deque>
 #include <krabs.hpp>
 #include <string>
-#include <vector>
 
 #include "etwc/common/encoding.hpp"
 #include "etwc/common/logging.hpp"
@@ -111,7 +111,10 @@ krabs::provider<> make_provider(const wchar_t* guid_str, std::uint64_t keywords)
 
 struct EtwSession::Impl {
     krabs::user_trace trace{L"EtwTelemetryCollector"};
-    std::vector<krabs::provider<>> providers;
+    // krabs::trace giữ std::reference_wrapper tới các provider này, nên địa chỉ
+    // phần tử PHẢI ổn định suốt vòng đời trace -> dùng std::deque (không realloc
+    // dời phần tử như std::vector).
+    std::deque<krabs::provider<>> providers;
 };
 
 EtwSession::EtwSession(const Config& cfg) : cfg_(cfg), impl_(std::make_unique<Impl>()) {}
@@ -121,33 +124,41 @@ EtwSession::~EtwSession() {
 }
 
 void EtwSession::on_raw_record(ProviderId provider, const void* record_ptr, const void* ctx_ptr) {
-    const auto& record = *static_cast<const EVENT_RECORD*>(record_ptr);
-    const auto& ctx = *static_cast<const krabs::trace_context*>(ctx_ptr);
-
-    RawEvent ev;
-    ev.provider = provider;
-    ev.pid = record.EventHeader.ProcessId;
-    ev.tid = record.EventHeader.ThreadId;
-    ev.timestamp = static_cast<Timestamp>(record.EventHeader.TimeStamp.QuadPart);
-
+    // Bọc catch-all: callback chạy trên thread xử lý của krabs, mọi exception
+    // thoát ra sẽ giết cả tiến trình -> phải nuốt tại đây.
     try {
-        krabs::schema schema(record, ctx.schema_locator);
-        ev.event_id = static_cast<std::uint16_t>(schema.event_id());
-        ev.opcode = static_cast<std::uint8_t>(schema.event_opcode());
+        const auto& record = *static_cast<const EVENT_RECORD*>(record_ptr);
+        const auto& ctx = *static_cast<const krabs::trace_context*>(ctx_ptr);
 
-        krabs::parser parser(schema);
-        for (const krabs::property& prop : parser.properties()) {
-            std::string value = property_to_string(parser, prop);
-            if (!value.empty())
-                ev.properties.emplace(wide_to_utf8(prop.name()), std::move(value));
+        RawEvent ev;
+        ev.provider = provider;
+        ev.pid = record.EventHeader.ProcessId;
+        ev.tid = record.EventHeader.ThreadId;
+        ev.timestamp = static_cast<Timestamp>(record.EventHeader.TimeStamp.QuadPart);
+
+        try {
+            krabs::schema schema(record, ctx.schema_locator);
+            ev.event_id = static_cast<std::uint16_t>(schema.event_id());
+            ev.opcode = static_cast<std::uint8_t>(schema.event_opcode());
+
+            krabs::parser parser(schema);
+            for (const krabs::property& prop : parser.properties()) {
+                std::string value = property_to_string(parser, prop);
+                if (!value.empty())
+                    ev.properties.emplace(wide_to_utf8(prop.name()), std::move(value));
+            }
+        } catch (const std::exception&) {
+            // Schema chưa sẵn / event lạ: vẫn đẩy metadata cơ bản đi.
         }
-    } catch (const std::exception&) {
-        // Schema chưa sẵn / event lạ: vẫn đẩy metadata cơ bản đi.
-    }
 
-    events_received_.fetch_add(1, std::memory_order_relaxed);
-    if (sink_)
-        sink_(std::move(ev));
+        events_received_.fetch_add(1, std::memory_order_relaxed);
+        if (sink_)
+            sink_(std::move(ev));
+    } catch (const std::exception& e) {
+        ETWC_LOG_ERROR(std::string("on_raw_record exception: ") + e.what());
+    } catch (...) {
+        ETWC_LOG_ERROR("on_raw_record unknown exception");
+    }
 }
 
 void EtwSession::configure_providers() {
