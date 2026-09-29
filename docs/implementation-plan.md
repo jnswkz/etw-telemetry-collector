@@ -1,0 +1,363 @@
+# Kế hoạch hiện thực — ETW Telemetry Collector
+
+Tài liệu này chia toàn bộ công việc thành các **giai đoạn (phase)** và **task** cụ thể.
+Mỗi task ghi rõ: mục tiêu, file liên quan, chi tiết kỹ thuật, tiêu chí hoàn thành (DoD),
+và phụ thuộc. Trạng thái: ⬜ chưa làm · 🟡 đang làm · ✅ xong.
+
+**Chú giải độ ưu tiên:** P0 = cốt lõi bắt buộc · P1 = quan trọng · P2 = tối ưu/hoàn thiện.
+
+**Thứ tự khuyến nghị:** Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8.
+Trong đó Phase 1 (Sensor) và Phase 4 (Graph) là đường găng (critical path).
+
+---
+
+## Phase 0 — Hạ tầng build & khung dự án
+
+Mục tiêu: `cmake --build` chạy xanh với đầy đủ dependency, CI cơ bản hoạt động.
+
+### T0.1 — Cố định baseline vcpkg & cài dependency ⬜ (P0)
+- **File:** `vcpkg.json`, `CMakePresets.json`
+- **Chi tiết:** Thay `builtin-baseline` (đang là chuỗi 0) bằng commit hash thực của
+  vcpkg. Xác minh 4 package resolve được: `krabsetw`, `sqlite3`, `nlohmann-json`,
+  `stduuid`, `catch2`. Đặt `VCPKG_ROOT` trong tài liệu môi trường.
+- **DoD:** `cmake --preset x64-release` cấu hình thành công, `find_package` cho cả 4 lib
+  đều `QUIET` mà vẫn tìm thấy target (bỏ guard `if(TARGET ...)` để lỗi lộ sớm sau khi ổn).
+
+### T0.2 — Bật cảnh báo nghiêm & chuẩn C++20 ⬜ (P1)
+- **File:** `CMakeLists.txt`, `src/CMakeLists.txt`
+- **Chi tiết:** Thêm `/W4 /permissive- /EHsc` cho MSVC; cân nhắc `/WX` ở CI.
+  Bật `/utf-8`. Định nghĩa target interface `etwc_warnings` để tái dùng.
+- **DoD:** Build không warning ở mức /W4 trên toàn bộ `etwc_core`.
+
+### T0.3 — CI pipeline (GitHub Actions / Azure) ⬜ (P1)
+- **File:** `.github/workflows/ci.yml` (tạo mới)
+- **Chi tiết:** Runner `windows-latest`, cache vcpkg, chạy configure + build +
+  `ctest`. Chạy `clang-format --dry-run --Werror`.
+- **DoD:** Push lên nhánh chạy CI xanh; PR bị chặn khi test/format fail.
+
+### T0.4 — Khung logging dùng được ⬜ (P1)
+- **File:** `include/etwc/common/logging.hpp`, `src/common/logging.cpp`
+- **Chi tiết:** Logger hiện tại đã ghi file/stderr. Bổ sung: timestamp, thread id,
+  xoay vòng file (rotate theo kích thước), macro `ETWC_LOG_DEBUG/TRACE`. Cân nhắc
+  thay bằng spdlog nếu muốn (thêm vào `vcpkg.json`).
+- **DoD:** Log ra file có timestamp + level; đa luồng không xen dòng.
+
+---
+
+## Phase 1 — Lớp cảm biến ETW (Sensor) · đường găng
+
+Mục tiêu: nhận được RawEvent thật từ 4 nhóm provider qua KRABSETW.
+
+### T1.1 — Đấu nối KRABSETW trong EtwSession::Impl ⬜ (P0)
+- **File:** `include/etwc/sensor/etw_session.hpp`, `src/sensor/etw_session.cpp`
+- **Chi tiết:** Hiện thực `Impl` chứa `krabs::user_trace` (cho các
+  `Microsoft-Windows-Kernel-*` provider dạng manifest). Trong `start()`:
+  mở trace trên thread riêng (`trace.start()` là blocking), trong `stop()` gọi
+  `trace.stop()`. Xử lý ngoại lệ krabs (thiếu quyền → log rõ ràng).
+- **Chi tiết bổ sung:** Kiểm tra tiến trình chạy với quyền Administrator +
+  đặc quyền `SeSystemProfilePrivilege`/`SeDebugPrivilege` trước khi mở session.
+- **DoD:** Ở chế độ `--console`, log in ra số event/giây nhận được (>0) khi mở
+  vài tiến trình/ghi file.
+- **Phụ thuộc:** T0.1.
+
+### T1.2 — Đăng ký providers + keyword filter ⬜ (P0)
+- **File:** `include/etwc/sensor/providers.hpp`, `src/sensor/providers.cpp`,
+  `src/sensor/etw_session.cpp`
+- **Chi tiết:** `configure_providers()` đăng ký đúng 4 provider theo `Config`
+  (process/file/registry/network). Xác minh lại các keyword bitmask trong
+  `providers.hpp` với manifest thật (`logman query providers "<name>"`). Gắn
+  `provider.add_on_event_callback` để nhận `EVENT_RECORD`. Bật lọc tối thiểu để
+  loại event dư thừa (chỉ create/terminate, read/write/delete/rename, setvalue,
+  outbound connect + DNS).
+- **DoD:** Chỉ 4 provider được bật; các opcode ngoài phạm vi không lọt vào callback.
+- **Phụ thuộc:** T1.1.
+
+### T1.3 — Decode schema event → RawEvent ⬜ (P0)
+- **File:** `src/sensor/etw_session.cpp`, `include/etwc/sensor/raw_event.hpp`
+- **Chi tiết:** Dùng `krabs::schema` + `krabs::parser` (nền TDH) để rút property
+  theo tên (ImageName, ProcessId, ParentProcessId, CommandLine, FileName, KeyName,
+  daddr/dport, QueryName…). Điền `RawEvent{provider_id, opcode, event_id, timestamp,
+  pid, tid, properties}`. Chuẩn hoá timestamp về FILETIME 100ns.
+- **DoD:** Với mỗi loại provider, dump được RawEvent có đủ property kỳ vọng (viết
+  test thủ công/console dump).
+- **Phụ thuộc:** T1.2.
+
+### T1.4 — Đọc PEB để bù CommandLine/ImagePath ⬜ (P1)
+- **File:** `include/etwc/sensor/peb_reader.hpp`, `src/sensor/peb_reader.cpp`
+- **Chi tiết:** `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | VM_READ)` →
+  `NtQueryInformationProcess(ProcessBasicInformation)` lấy `PebBaseAddress` →
+  `ReadProcessMemory` đọc `PEB.ProcessParameters` →
+  `RTL_USER_PROCESS_PARAMETERS.CommandLine`/`ImagePathName` (UNICODE_STRING).
+  Xử lý WOW64 (tiến trình 32-bit trên OS 64-bit) bằng
+  `NtWow64QueryInformationProcess64`/`NtWow64ReadVirtualMemory64` khi cần.
+- **DoD:** Với tiến trình vừa tạo mà ETW khuyết CommandLine, hàm trả về đúng
+  command line như Process Explorer hiển thị.
+- **Phụ thuộc:** T1.1 (độc lập tương đối, có thể làm song song).
+
+### T1.5 — Chuẩn hóa đường dẫn NT → DOS ⬜ (P1)
+- **File:** `include/etwc/common/path_normalizer.hpp`, `src/common/path_normalizer.cpp`
+- **Chi tiết:** Dựng bảng ánh xạ `\Device\HarddiskVolumeN → X:` bằng
+  `GetLogicalDriveStrings` + `QueryDosDeviceW`. Cache thread-safe (shared_mutex),
+  `refresh_volume_map()` gọi khi khởi động và khi có `WM_DEVICECHANGE`/lỗi tra cứu.
+  Xử lý thêm tiền tố `\??\`, `\SystemRoot`, đường dẫn UNC (`\Device\Mup\...`).
+- **DoD:** `\Device\HarddiskVolume4\Windows\notepad.exe` → `C:\Windows\notepad.exe`;
+  unit test với vài mẫu.
+- **Phụ thuộc:** không.
+
+---
+
+## Phase 2 — Chuẩn hóa & làm giàu ngữ cảnh (Normalizer)
+
+Mục tiêu: RawEvent → NormalizedEvent đầy đủ định danh, phả hệ, đặc quyền.
+
+### T2.1 — Ánh xạ opcode → EventKind ⬜ (P0)
+- **File:** `include/etwc/normalizer/normalizer.hpp`, `src/normalizer/normalizer.cpp`
+- **Chi tiết:** Hoàn thiện `map_opcode()`: bảng tra `(provider GUID/id, event_id/opcode)
+  → EventKind`. Ví dụ Kernel-Process opcode 1/2 → ProcessCreate/Terminate;
+  Kernel-File create/write/delete/rename; Kernel-Registry SetValue/CreateKey/DeleteKey;
+  Kernel-Network connect (chỉ outbound) + DNS. Trả `Unknown` để Normalizer bỏ qua.
+- **DoD:** Mọi RawEvent hợp lệ ra đúng EventKind; event ngoài phạm vi trả nullopt.
+- **Phụ thuộc:** T1.3.
+
+### T2.2 — Trích property theo từng EventKind ⬜ (P0)
+- **File:** `src/normalizer/normalizer.cpp`
+- **Chi tiết:** Điền `NormalizedEvent`: pid/ppid, process_name (chuẩn hóa path bằng
+  T1.5), target (file/registry key/endpoint/dns), remote_addr/remote_port cho network.
+  Bù `command_line` từ PEB (T1.4) khi thiếu và kind là ProcessCreate.
+- **DoD:** Với mỗi kind, các trường bắt buộc không rỗng; target đã ở dạng DOS path.
+- **Phụ thuộc:** T2.1, T1.4, T1.5.
+
+### T2.3 — Cache phả hệ tiến trình & làm giàu parent_name ⬜ (P1)
+- **File:** `src/normalizer/normalizer.cpp` (+ struct cache mới, ví dụ
+  `include/etwc/normalizer/process_cache.hpp`)
+- **Chi tiết:** Bảng `pid → {name, ppid, start_time, token flags}` cập nhật khi
+  ProcessCreate, xóa (hoặc đánh dấu) khi Terminate. `enrich_lineage()` tra ppid để
+  điền `parent_name`. Xử lý tái sử dụng PID bằng cách so start_time.
+- **DoD:** parent_name đúng cho chuỗi cha→con nhiều tầng; test với cmd → child.
+- **Phụ thuộc:** T2.2.
+
+### T2.4 — Gán nhãn đặc quyền (is_system / token_elevated) ⬜ (P1)
+- **File:** `src/normalizer/normalizer.cpp`
+- **Chi tiết:** `OpenProcessToken` → `GetTokenInformation`:
+  `TokenElevation` (elevated), so SID với `S-1-5-18` (SYSTEM) hoặc kiểm tra
+  `TokenUser`/integrity level. Cache theo pid để tránh mở token lặp lại.
+- **DoD:** Tiến trình chạy admin → token_elevated=true; dịch vụ SYSTEM → is_system=true.
+- **Phụ thuộc:** T2.2.
+
+### T2.5 — Gán UUID v4 chuẩn ⬜ (P2)
+- **File:** `include/etwc/common/uuid.hpp`, `src/common/uuid.cpp`
+- **Chi tiết:** Bản hiện tại đủ dùng. Nếu cần tuân thủ chặt RFC 4122, chuyển sang
+  `stduuid`. Đảm bảo sinh UUID không là điểm nghẽn hiệu năng (đã thread_local rng).
+- **DoD:** Test format (đã có `test_uuid.cpp`); benchmark > 1M uuid/s.
+- **Phụ thuộc:** không.
+
+---
+
+## Phase 3 — Ring Buffer & Lưu trữ SQLite
+
+Mục tiêu: đường ống Producer/Consumer chịu tải cao, lưu vết bền vững.
+
+### T3.1 — Đo & kiểm chứng Ring Buffer dưới tải ⬜ (P1)
+- **File:** `include/etwc/buffer/ring_buffer.hpp`, `tests/test_ring_buffer.cpp`
+- **Chi tiết:** RingBuffer đã hiện thực (blocking). Bổ sung test đa luồng
+  (nhiều producer 1 consumer), kiểm chứng FIFO & không mất phần tử. Thêm chính sách
+  tùy chọn `overwrite` (tăng `dropped_`) cho tình huống burst — dùng khi ưu tiên độ
+  trễ hơn tính toàn vẹn. Cân nhắc đệm power-of-two + bitmask thay `% capacity`.
+- **DoD:** Test stress 10M event không deadlock/mất phần tử ở chế độ blocking.
+- **Phụ thuộc:** không.
+
+### T3.2 — Mở DB SQLite + schema + PRAGMA ⬜ (P0)
+- **File:** `include/etwc/storage/sqlite_store.hpp`, `src/storage/sqlite_store.cpp`
+- **Chi tiết:** `sqlite3_open_v2` (READWRITE|CREATE). PRAGMA:
+  `journal_mode=WAL`, `synchronous=NORMAL`, `temp_store=MEMORY`, `cache_size`.
+  Tạo bảng `events` (uuid PK, kind, ts, pid, ppid, process_name, parent_name,
+  command_line, target, is_system, token_elevated, remote_addr, remote_port) +
+  index (pid, ts, kind). Tạo thư mục `data/` nếu chưa có.
+- **DoD:** File `.sqlite` tạo được, mở lại thấy bảng + index; xử lý lỗi mở DB.
+- **Phụ thuộc:** T0.1.
+
+### T3.3 — Ghi batch bằng prepared statement trong transaction ⬜ (P0)
+- **File:** `src/storage/sqlite_store.cpp`
+- **Chi tiết:** `append()` gom vào `pending`; `flush()` bọc `BEGIN…COMMIT`, dùng
+  một prepared statement `INSERT`, `sqlite3_bind_*` + `step` + `reset` cho từng row.
+  Flush theo ngưỡng (512) và theo timer (ví dụ mỗi 1s) để tránh giữ dữ liệu lâu.
+  Xử lý lỗi `SQLITE_BUSY` với retry/backoff.
+- **DoD:** Ghi ≥ 50k event/s trên ổ SSD mà consumer không nghẽn; số row khớp số event.
+- **Phụ thuộc:** T3.2.
+
+### T3.4 — Vòng đời & flush an toàn khi tắt ⬜ (P1)
+- **File:** `src/storage/sqlite_store.cpp`, `src/service/collector.cpp`
+- **Chi tiết:** `close()` flush nốt `pending`, finalize statement, `sqlite3_close_v2`.
+  Đảm bảo consumer flush trước khi thread thoát (đã gọi trong `consumer_loop`).
+- **DoD:** Kill service giữa chừng → không mất quá 1 batch; DB không hỏng (integrity_check).
+- **Phụ thuộc:** T3.3.
+
+---
+
+## Phase 4 — Đồ thị nhân quả BehaviorGraph · đường găng
+
+Mục tiêu: dựng đồ thị provenance streaming đúng và hiệu quả.
+
+### T4.1 — Rà soát & củng cố ingest/adjacency ⬜ (P0)
+- **File:** `include/etwc/graph/behavior_graph.hpp`, `src/graph/behavior_graph.cpp`
+- **Chi tiết:** `ingest()` + `get_or_create_vertex` + `add_edge` đã có. Bổ sung:
+  chống trùng cạnh lặp (dedup theo (src,dst,kind) trong cửa sổ thời gian ngắn để
+  giảm bão log read/write); ghi `last_seen` cho cả process và resource; thống nhất
+  cách sinh `key` (đưa `make_key` ra chỗ tái dùng chung với index).
+- **DoD:** Test dựng đồ thị cho kịch bản cha→con→ghi file→kết nối mạng cho ra đúng
+  số nút/cạnh; mở rộng `test_behavior_graph.cpp`.
+- **Phụ thuộc:** T2.x (dữ liệu đầu vào), nhưng có thể test bằng NormalizedEvent giả.
+
+### T4.2 — Đảm bảo Partial Ordering & xử lý PID tái dụng ⬜ (P1)
+- **File:** `src/graph/behavior_graph.cpp`
+- **Chi tiết:** Định danh nút process theo `(pid, start_time)` thay vì chỉ pid, để
+  khi PID bị tái sử dụng sau terminate sẽ tạo nút mới thay vì trộn lịch sử. Ghi
+  chú thứ tự: cạnh vào (parent→child) phải tạo trước khi child phát sinh cạnh ra —
+  do luồng sự kiện ETW đã theo thời gian, chỉ cần không sắp xếp lại.
+- **DoD:** Kịch bản PID tái dụng cho ra 2 nút process tách biệt; không cạnh "xuyên đời".
+- **Phụ thuộc:** T4.1, T2.3.
+
+### T4.3 — Truy vấn & xuất đồ thị (phục vụ điều tra) ⬜ (P2)
+- **File:** `include/etwc/graph/behavior_graph.hpp`, file mới
+  `src/graph/graph_export.cpp`
+- **Chi tiết:** API export snapshot ra JSON/DOT (Graphviz) để trực quan hóa;
+  truy vấn tổ tiên/hậu duệ của một nút. Khóa đọc phù hợp nếu graph truy cập đa luồng.
+- **DoD:** Xuất được file `.dot` render bằng Graphviz cho một cây tiến trình mẫu.
+- **Phụ thuộc:** T4.1.
+
+---
+
+## Phase 5 — Cắt tỉa đồ thị (Pruner)
+
+Mục tiêu: giữ RAM ổn định 20–40 MB dưới bão log.
+
+### T5.1 — Thu hồi nút chết (Dead Node Purging) ⬜ (P0)
+- **File:** `include/etwc/graph/pruner.hpp`, `src/graph/pruner.cpp`
+- **Chi tiết:** Duyệt các process vertex `alive==false`; điều kiện xóa: mọi con đã
+  chết và không còn "kết nối nhân quả mở" (socket đang mở/handle file còn giữ). Cần
+  bổ sung theo dõi trạng thái đóng tài nguyên (từ event close nếu bật) hoặc timeout.
+  Khi xóa: gỡ khỏi `vertices_`, `adjacency_`, `index_`, `pid_index_`, cập nhật
+  `edge_count_`. Tránh xóa nhầm nút còn được nút sống trỏ tới.
+- **DoD:** Sau khi cây tiến trình kết thúc, số nút giảm về mức nền; không dangling id.
+- **Phụ thuộc:** T4.1.
+
+### T5.2 — Thu gọn subgraph sạch (Clean Subgraph Collapsing) ⬜ (P1)
+- **File:** `src/graph/pruner.cpp`
+- **Chi tiết:** Với process hệ thống chạy lâu dài trong allowlist
+  (explorer/services/svchost…), thu gọn cây con hoạt động bình thường thành một nút
+  đại diện + bộ đếm, giữ lại chi tiết chỉ khi có tín hiệu bất thường. Cần chính sách
+  "giữ N sự kiện gần nhất" để không mất hoàn toàn ngữ cảnh.
+- **DoD:** RAM khi chạy nền dài hạn ổn định trong 20–40 MB (đo bằng T7.2).
+- **Phụ thuộc:** T5.1.
+
+### T5.3 — Lập lịch prune theo Config ⬜ (P1)
+- **File:** `src/service/collector.cpp`, `include/etwc/common/config.hpp`
+- **Chi tiết:** Hiện `consumer_loop` gọi prune mỗi 1000 event. Đổi sang lịch theo
+  `prune_interval_ms` (timer) và/hoặc khi vượt `soft_vertex_limit`. Đo thời gian mỗi
+  chu kỳ prune, log cảnh báo nếu prune > ngưỡng độ trễ.
+- **DoD:** Prune chạy đúng chu kỳ cấu hình; không làm consumer trễ đáng kể.
+- **Phụ thuộc:** T5.1.
+
+---
+
+## Phase 6 — Windows Service & cấu hình
+
+Mục tiêu: chạy ổn định như dịch vụ nền, cấu hình linh hoạt.
+
+### T6.1 — Nạp Config từ JSON ⬜ (P1)
+- **File:** `include/etwc/common/config.hpp`, `src/common/config.cpp`, `config/collector.json`
+- **Chi tiết:** Hiện thực `Config::load()` bằng `nlohmann::json`: đọc file, override
+  mặc định, validate (ring_capacity là power-of-two, đường dẫn hợp lệ). Ghi log rõ
+  khi file thiếu → dùng defaults. Xác định đường dẫn config tương đối theo thư mục exe.
+- **DoD:** Sửa `collector.json` (ví dụ tắt network) → hành vi collector đổi theo.
+- **Phụ thuộc:** T0.1.
+
+### T6.2 — Hoàn thiện vòng đời Service (SCM) ⬜ (P1)
+- **File:** `src/service/service_main.cpp`, `src/service/service_control.cpp`
+- **Chi tiết:** Đã có install/uninstall + control handler. Bổ sung: cấu hình
+  recovery (tự khởi động lại khi crash) qua `ChangeServiceConfig2`; chạy dưới tài
+  khoản `LocalSystem`; xử lý `SERVICE_CONTROL_SHUTDOWN`; ghi Windows Event Log khi
+  start/stop/lỗi. Đặt `dwWaitHint` hợp lý để tránh SCM timeout.
+- **DoD:** `sc start/stop` hoạt động mượt; service tự dậy sau khi bị kill.
+- **Phụ thuộc:** T1.1.
+
+### T6.3 — Quyền & tiền điều kiện khi khởi động ⬜ (P1)
+- **File:** `src/service/collector.cpp`, `src/sensor/etw_session.cpp`
+- **Chi tiết:** Kiểm tra & bật đặc quyền cần thiết (SeDebugPrivilege để đọc PEB/token
+  tiến trình khác) bằng `AdjustTokenPrivileges`. Báo lỗi rõ ràng nếu thiếu quyền.
+- **DoD:** Chạy đúng dưới LocalSystem; đọc được PEB/token của tiến trình user.
+- **Phụ thuộc:** T1.4, T2.4.
+
+---
+
+## Phase 7 — Kiểm thử, hiệu năng, độ tin cậy
+
+### T7.1 — Mở rộng unit test ⬜ (P1)
+- **File:** `tests/*.cpp`, `tests/CMakeLists.txt`
+- **Chi tiết:** Thêm test cho path_normalizer, normalizer (map_opcode, enrich),
+  pruner (purge/collapse), config loader. Dùng NormalizedEvent/RawEvent giả lập để
+  không phụ thuộc ETW thật.
+- **DoD:** Độ phủ các module logic thuần > 70%; `ctest` xanh.
+
+### T7.2 — Benchmark & đo drop rate / RAM ⬜ (P1)
+- **File:** `tools/bench/` (tạo mới), tài liệu kết quả trong `docs/`
+- **Chi tiết:** Kịch bản sinh tải (mở/đóng tiến trình, ghi file loạt). Đo:
+  ETW drop rate (mục tiêu < 0.1% — đọc `EVENT_TRACE_PROPERTIES.EventsLost`),
+  RAM RSS của collector (mục tiêu 20–40 MB), throughput event/s, độ trễ end-to-end.
+- **DoD:** Báo cáo số liệu đạt mục tiêu thiết kế; có script tái lập.
+- **Phụ thuộc:** Phase 1–5 xong.
+
+### T7.3 — Kiểm thử tích hợp end-to-end ⬜ (P1)
+- **File:** `tests/integration/` (tạo mới, chạy có điều kiện cần admin)
+- **Chi tiết:** Chạy collector ở console, thực thi kịch bản đã biết (spawn tiến trình
+  con, ghi file tạm, kết nối localhost), rồi truy vấn SQLite/graph xác nhận sự kiện
+  và cạnh nhân quả xuất hiện đúng.
+- **DoD:** Test tích hợp pass trên máy có quyền admin.
+- **Phụ thuộc:** Phase 1–5.
+
+### T7.4 — Xử lý lỗi & phục hồi ⬜ (P2)
+- **File:** toàn cục
+- **Chi tiết:** Rà soát các điểm có thể ném/lỗi (mở session, mở DB, hết RAM). Đảm
+  bảo không crash service; log + tiếp tục hoặc restart thành phần lỗi. Chống rò rỉ
+  handle (RAII cho HANDLE/token).
+- **DoD:** Chịu được lỗi tạm thời (DB busy, mất quyền) không sập.
+
+---
+
+## Phase 8 — Đóng gói & tài liệu
+
+### T8.1 — Trình cài đặt & triển khai ⬜ (P2)
+- **File:** `tools/`, script đóng gói
+- **Chi tiết:** Gói exe + config + phụ thuộc runtime (VC++ redist). Tùy chọn tạo
+  MSI/WiX. Hoàn thiện `install-service.ps1` (copy vào `Program Files`, tạo `data/`,
+  `logs/`, đặt ACL).
+- **DoD:** Cài trên máy sạch (chưa có toolchain) chạy được.
+
+### T8.2 — Tài liệu vận hành & bảo mật ⬜ (P2)
+- **File:** `docs/`, `README.md`
+- **Chi tiết:** Hướng dẫn cài/gỡ/cấu hình, sơ đồ dữ liệu SQLite, lưu ý quyền, chính
+  sách lưu trữ/nén DB, cân nhắc riêng tư (dữ liệu nhạy cảm trong command line).
+- **DoD:** Người mới theo tài liệu tự triển khai được.
+
+---
+
+## Ma trận phụ thuộc (rút gọn)
+
+```
+T0.1 ─┬─> T1.1 ─> T1.2 ─> T1.3 ─┬─> T2.1 ─> T2.2 ─┬─> T2.3
+      │                          │                 └─> T2.4
+      ├─> T3.2 ─> T3.3 ─> T3.4   │
+      └─> T6.1                   └─> (dữ liệu cho) T4.1 ─> T4.2
+T1.4 ──────────────> T2.2                         T4.1 ─> T5.1 ─> T5.2 ─> T5.3
+T1.5 ──────────────> T2.2                         T4.1 ─> T4.3
+Phase1–5 ─> T7.2 / T7.3
+```
+
+## Mốc bàn giao (milestones)
+
+- **M1 — Sensor sống:** T1.1–T1.3 + T2.1 → thấy event thật chảy qua console.
+- **M2 — Lưu vết:** + T3.2–T3.4 → sự kiện được ghi SQLite bền vững.
+- **M3 — Provenance:** + T2.2–T2.4, T4.1–T4.2 → đồ thị nhân quả đúng.
+- **M4 — Ổn định RAM:** + T5.1–T5.3 → chạy dài hạn 20–40 MB.
+- **M5 — Dịch vụ hoàn chỉnh:** + Phase 6 → chạy như Windows Service.
+- **M6 — Sẵn sàng phát hành:** + Phase 7–8 → đạt chỉ tiêu, có tài liệu & installer.
