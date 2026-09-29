@@ -94,8 +94,13 @@ Bật cảnh báo-thành-lỗi (như CI) bằng `-D ETWC_WARNINGS_AS_ERRORS=ON` 
 > Ghi chú: `krabsetw` là thư viện **header-only**, được nạp qua
 > `find_path(KRABSETW_INCLUDE_DIRS "krabs.hpp")` chứ không phải `find_package`.
 
-Chạy service ở chế độ console để debug (cần quyền Administrator để mở ETW kernel session):
+Chạy service ở chế độ console để debug. **Bắt buộc quyền Administrator** để mở ETW
+session (không có quyền sẽ log lỗi "Need to be an admin"). Mở PowerShell **Run as
+administrator** rồi:
 
-```bash
-.\build\x64-release\src\etwcollector.exe --console
+```powershell
+.\build\x64-release\bin\etwcollector.exe --console
 ```
+
+Mỗi giây collector in số liệu `ETW events/s=... total_received=... ingested=...`.
+Nhấn Ctrl+C để dừng. Log ghi tại `logs\collector.log`.

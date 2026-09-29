@@ -5,6 +5,7 @@ add_executable(etwc_tests
     test_ring_buffer.cpp
     test_behavior_graph.cpp
     test_uuid.cpp
+    test_path_normalizer.cpp
 )
 
 target_link_libraries(etwc_tests PRIVATE etwc_core etwc_warnings)

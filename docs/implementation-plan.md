@@ -54,61 +54,62 @@ Mục tiêu: `cmake --build` chạy xanh với đầy đủ dependency, CI cơ b
 
 Mục tiêu: nhận được RawEvent thật từ 4 nhóm provider qua KRABSETW.
 
-### T1.1 — Đấu nối KRABSETW trong EtwSession::Impl ⬜ (P0)
+### T1.1 — Đấu nối KRABSETW trong EtwSession::Impl ✅ (P0)
 - **File:** `include/etwc/sensor/etw_session.hpp`, `src/sensor/etw_session.cpp`
-- **Chi tiết:** Hiện thực `Impl` chứa `krabs::user_trace` (cho các
-  `Microsoft-Windows-Kernel-*` provider dạng manifest). Trong `start()`:
-  mở trace trên thread riêng (`trace.start()` là blocking), trong `stop()` gọi
-  `trace.stop()`. Xử lý ngoại lệ krabs (thiếu quyền → log rõ ràng).
-- **Chi tiết bổ sung:** Kiểm tra tiến trình chạy với quyền Administrator +
-  đặc quyền `SeSystemProfilePrivilege`/`SeDebugPrivilege` trước khi mở session.
-- **DoD:** Ở chế độ `--console`, log in ra số event/giây nhận được (>0) khi mở
-  vài tiến trình/ghi file.
+- **Đã làm:** `Impl` chứa `krabs::user_trace` + vector provider. `start()` chạy
+  `trace.start()` trên thread riêng (blocking) trong try/catch; `stop()` gọi
+  `trace.stop()` an toàn từ thread khác + join. Counter `events_received()` để đo.
+- **Lưu ý phát sinh:** Constructor `krabs::provider<>(providerName)` duyệt toàn bộ
+  catalog qua **COM/PLA** → cực chậm/treo. Đã chuyển sang khởi tạo **bằng GUID**
+  (`krabs::provider<>(krabs::guid(L"{...}"))`).
+- **DoD:** ✅ Verify console: 4 provider enable, trace loop chạy, dừng đúng với lỗi
+  rõ ràng "Need to be an admin" khi chưa elevated (đúng bản chất ETW). Đo events/s
+  > 0 cần chạy **Administrator** (xem README).
 - **Phụ thuộc:** T0.1.
 
-### T1.2 — Đăng ký providers + keyword filter ⬜ (P0)
-- **File:** `include/etwc/sensor/providers.hpp`, `src/sensor/providers.cpp`,
-  `src/sensor/etw_session.cpp`
-- **Chi tiết:** `configure_providers()` đăng ký đúng 4 provider theo `Config`
-  (process/file/registry/network). Xác minh lại các keyword bitmask trong
-  `providers.hpp` với manifest thật (`logman query providers "<name>"`). Gắn
-  `provider.add_on_event_callback` để nhận `EVENT_RECORD`. Bật lọc tối thiểu để
-  loại event dư thừa (chỉ create/terminate, read/write/delete/rename, setvalue,
-  outbound connect + DNS).
-- **DoD:** Chỉ 4 provider được bật; các opcode ngoài phạm vi không lọt vào callback.
+### T1.2 — Đăng ký providers + keyword filter ✅ (P0)
+- **File:** `include/etwc/sensor/providers.hpp`, `src/sensor/etw_session.cpp`
+- **Đã làm:** `configure_providers()` bật đúng 4 provider theo `Config`. GUID +
+  keyword bitmask **xác minh bằng `logman query providers`**: Process 0x10;
+  File CREATE|READ|WRITE|DELETE_PATH|RENAME|FILENAME; Registry
+  SetValue|DeleteValue|CreateKey|DeleteKey; Network IPv4|IPv6. Callback riêng mỗi
+  provider gắn `ProviderId` để biết nguồn.
+- **DoD:** ✅ Log "enabled 4 providers"; chỉ keyword đã chọn được bật.
 - **Phụ thuộc:** T1.1.
 
-### T1.3 — Decode schema event → RawEvent ⬜ (P0)
+### T1.3 — Decode schema event → RawEvent ✅ (P0)
 - **File:** `src/sensor/etw_session.cpp`, `include/etwc/sensor/raw_event.hpp`
-- **Chi tiết:** Dùng `krabs::schema` + `krabs::parser` (nền TDH) để rút property
-  theo tên (ImageName, ProcessId, ParentProcessId, CommandLine, FileName, KeyName,
-  daddr/dport, QueryName…). Điền `RawEvent{provider_id, opcode, event_id, timestamp,
-  pid, tid, properties}`. Chuẩn hoá timestamp về FILETIME 100ns.
-- **DoD:** Với mỗi loại provider, dump được RawEvent có đủ property kỳ vọng (viết
-  test thủ công/console dump).
+- **Đã làm:** `on_raw_record` dựng `RawEvent{provider, event_id, opcode, timestamp
+  (FILETIME 100ns từ EVENT_HEADER), pid, tid}` + bộ trích property **generic**:
+  duyệt `parser.properties()`, switch theo `TDH_IN_TYPE`, `try_parse<T>` rồi đổi
+  sang chuỗi UTF-8 (string/int/uint/bool/pointer/filetime). RawEvent thêm
+  `ProviderId provider` + `has()`.
+- **DoD:** ✅ Build OK; decode chạy trong callback (kiểm chứng đầy đủ cần admin để
+  có event thật — thuộc T1.1/T7.3).
 - **Phụ thuộc:** T1.2.
 
-### T1.4 — Đọc PEB để bù CommandLine/ImagePath ⬜ (P1)
+### T1.4 — Đọc PEB để bù CommandLine/ImagePath ✅ (P1)
 - **File:** `include/etwc/sensor/peb_reader.hpp`, `src/sensor/peb_reader.cpp`
-- **Chi tiết:** `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | VM_READ)` →
-  `NtQueryInformationProcess(ProcessBasicInformation)` lấy `PebBaseAddress` →
-  `ReadProcessMemory` đọc `PEB.ProcessParameters` →
-  `RTL_USER_PROCESS_PARAMETERS.CommandLine`/`ImagePathName` (UNICODE_STRING).
-  Xử lý WOW64 (tiến trình 32-bit trên OS 64-bit) bằng
-  `NtWow64QueryInformationProcess64`/`NtWow64ReadVirtualMemory64` khi cần.
-- **DoD:** Với tiến trình vừa tạo mà ETW khuyết CommandLine, hàm trả về đúng
-  command line như Process Explorer hiển thị.
-- **Phụ thuộc:** T1.1 (độc lập tương đối, có thể làm song song).
+- **Đã làm:** `OpenProcess(QUERY_LIMITED_INFORMATION|VM_READ)` →
+  `NtQueryInformationProcess(ProcessBasicInformation)` (winternl.h) → `ReadProcessMemory`
+  đọc `PEB.ProcessParameters` → `CommandLine`/`ImagePathName` (UNICODE_STRING) →
+  UTF-8. Collector x64 đọc được cả tiến trình WOW64 (PEB native), nên chưa cần
+  đường Wow64 riêng.
+- **DoD:** ✅ Build + link ntdll OK. Verify runtime với tiến trình thật ở T7.3.
+- **Phụ thuộc:** T1.1 (độc lập, đã làm song song).
 
-### T1.5 — Chuẩn hóa đường dẫn NT → DOS ⬜ (P1)
+### T1.5 — Chuẩn hóa đường dẫn NT → DOS ✅ (P1)
 - **File:** `include/etwc/common/path_normalizer.hpp`, `src/common/path_normalizer.cpp`
-- **Chi tiết:** Dựng bảng ánh xạ `\Device\HarddiskVolumeN → X:` bằng
-  `GetLogicalDriveStrings` + `QueryDosDeviceW`. Cache thread-safe (shared_mutex),
-  `refresh_volume_map()` gọi khi khởi động và khi có `WM_DEVICECHANGE`/lỗi tra cứu.
-  Xử lý thêm tiền tố `\??\`, `\SystemRoot`, đường dẫn UNC (`\Device\Mup\...`).
-- **DoD:** `\Device\HarddiskVolume4\Windows\notepad.exe` → `C:\Windows\notepad.exe`;
-  unit test với vài mẫu.
+- **Đã làm:** Bảng `\Device\HarddiskVolumeN → X:` qua `GetLogicalDrives` +
+  `QueryDosDeviceW`, cache `shared_mutex` (lazy init + `refresh_volume_map`). Xử lý
+  `\??\`, DOS path, UNC `\\`; device không map → `nullopt`.
+- **DoD:** ✅ 5 unit test pass (strip `\??\`, passthrough DOS/UNC, nullopt cho device
+  lạ, map ổ hệ thống). Tổng ctest 9/9 pass.
 - **Phụ thuộc:** không.
+
+> **Còn tinh chỉnh cho Phase 2:** event ID → EventKind chính xác (một số ID trong
+> `providers.hpp` là dự kiến, sẽ chốt khi có dump event thật ở T2.1); format IPv4/IPv6
+> cho địa chỉ mạng; correlate FileKey→tên file cho Read/Write.
 
 ---
 

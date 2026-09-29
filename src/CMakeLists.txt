@@ -6,6 +6,7 @@ add_library(etwc_core STATIC
     common/config.cpp
     common/logging.cpp
     common/uuid.cpp
+    common/encoding.cpp
     common/path_normalizer.cpp
 
     sensor/etw_session.cpp
@@ -36,8 +37,9 @@ target_compile_definitions(etwc_core PUBLIC
 )
 
 # vcpkg dependencies (find_package/find_path REQUIRED ở CMakeLists.txt gốc).
-# krabsetw header-only: chỉ cần include dir.
-target_include_directories(etwc_core PUBLIC ${KRABSETW_INCLUDE_DIRS})
+# krabsetw header-only: chỉ cần include dir. Đánh dấu SYSTEM để cảnh báo trong
+# header thư viện không bị /WX biến thành lỗi.
+target_include_directories(etwc_core SYSTEM PUBLIC ${KRABSETW_INCLUDE_DIRS})
 target_link_libraries(etwc_core PUBLIC
     unofficial::sqlite3::sqlite3
     nlohmann_json::nlohmann_json

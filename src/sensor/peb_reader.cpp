@@ -1,17 +1,93 @@
 #include "etwc/sensor/peb_reader.hpp"
 
-// TODO: OpenProcess -> NtQueryInformationProcess(ProcessBasicInformation)
-//       -> đọc PEB -> ProcessParameters -> CommandLine / ImagePathName
-//       qua ReadProcessMemory. Xử lý WOW64 khi cần.
+#include <windows.h>
+// <winternl.h> phải đứng sau <windows.h>.
+#include <winternl.h>
+
+#include "etwc/common/encoding.hpp"
+
+#pragma comment(lib, "ntdll.lib")
 
 namespace etwc {
+namespace {
 
-std::optional<std::string> read_command_line_from_peb(Pid /*pid*/) {
-    return std::nullopt;  // stub
+// Mở tiến trình với quyền tối thiểu để đọc PEB. Trả về handle hoặc nullptr.
+HANDLE open_for_read(Pid pid) {
+    return ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, FALSE,
+                         static_cast<DWORD>(pid));
 }
 
-std::optional<std::string> read_image_path_from_peb(Pid /*pid*/) {
-    return std::nullopt;  // stub
+// Đọc con trỏ PEB của tiến trình đích.
+PVOID query_peb_base(HANDLE h) {
+    PROCESS_BASIC_INFORMATION pbi{};
+    ULONG ret = 0;
+    const NTSTATUS st =
+        ::NtQueryInformationProcess(h, ProcessBasicInformation, &pbi, sizeof(pbi), &ret);
+    if (st < 0)
+        return nullptr;
+    return pbi.PebBaseAddress;
+}
+
+// Đọc nội dung một UNICODE_STRING nằm trong không gian địa chỉ tiến trình đích.
+std::wstring read_remote_ustring(HANDLE h, const UNICODE_STRING& us) {
+    if (us.Buffer == nullptr || us.Length == 0)
+        return {};
+    std::wstring buf(us.Length / sizeof(wchar_t), L'\0');
+    SIZE_T read = 0;
+    if (!::ReadProcessMemory(h, us.Buffer, buf.data(), us.Length, &read))
+        return {};
+    buf.resize(read / sizeof(wchar_t));
+    return buf;
+}
+
+// Đọc RTL_USER_PROCESS_PARAMETERS của tiến trình đích.
+// Trả về false nếu bất kỳ bước ReadProcessMemory nào thất bại.
+bool read_process_parameters(HANDLE h, RTL_USER_PROCESS_PARAMETERS& out) {
+    PVOID peb_base = query_peb_base(h);
+    if (peb_base == nullptr)
+        return false;
+
+    PEB peb{};
+    if (!::ReadProcessMemory(h, peb_base, &peb, sizeof(peb), nullptr))
+        return false;
+    if (peb.ProcessParameters == nullptr)
+        return false;
+
+    return ::ReadProcessMemory(h, peb.ProcessParameters, &out, sizeof(out), nullptr) != 0;
+}
+
+}  // namespace
+
+std::optional<std::string> read_command_line_from_peb(Pid pid) {
+    HANDLE h = open_for_read(pid);
+    if (h == nullptr)
+        return std::nullopt;
+
+    std::optional<std::string> result;
+    RTL_USER_PROCESS_PARAMETERS params{};
+    if (read_process_parameters(h, params)) {
+        std::wstring cmd = read_remote_ustring(h, params.CommandLine);
+        if (!cmd.empty())
+            result = wide_to_utf8(cmd);
+    }
+    ::CloseHandle(h);
+    return result;
+}
+
+std::optional<std::string> read_image_path_from_peb(Pid pid) {
+    HANDLE h = open_for_read(pid);
+    if (h == nullptr)
+        return std::nullopt;
+
+    std::optional<std::string> result;
+    RTL_USER_PROCESS_PARAMETERS params{};
+    if (read_process_parameters(h, params)) {
+        std::wstring img = read_remote_ustring(h, params.ImagePathName);
+        if (!img.empty())
+            result = wide_to_utf8(img);
+    }
+    ::CloseHandle(h);
+    return result;
 }
 
 }  // namespace etwc

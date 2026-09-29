@@ -2,6 +2,8 @@
 
 #include <atomic>
 #include <csignal>
+#include <cstdint>
+#include <string>
 
 #include "etwc/common/config.hpp"
 #include "etwc/common/logging.hpp"
@@ -73,7 +75,21 @@ int run_as_console() {
     ETWC_LOG_INFO("Running in console mode. Press Ctrl+C to stop.");
     static std::atomic<bool> stop{false};
     std::signal(SIGINT, [](int) { stop = true; });
-    while (!stop) Sleep(200);
+
+    // In số liệu mỗi giây để kiểm chứng luồng sự kiện (DoD Phase 1).
+    std::uint64_t last = 0;
+    int ticks = 0;
+    while (!stop) {
+        Sleep(200);
+        if (++ticks >= 5) {  // ~1s
+            ticks = 0;
+            const std::uint64_t recv = collector.events_received();
+            const std::uint64_t ing = collector.events_ingested();
+            ETWC_LOG_INFO("ETW events/s=" + std::to_string(recv - last) + " total_received=" +
+                          std::to_string(recv) + " ingested=" + std::to_string(ing));
+            last = recv;
+        }
+    }
 
     collector.stop();
     log_shutdown();

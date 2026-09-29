@@ -1,7 +1,9 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <functional>
+#include <memory>
 #include <thread>
 
 #include "etwc/common/config.hpp"
@@ -29,13 +31,20 @@ public:
     void start(RawEventSink sink);
     void stop();
 
+    // Số sự kiện đã nhận từ ETW (phục vụ kiểm chứng DoD / đo throughput).
+    std::uint64_t events_received() const { return events_received_.load(); }
+
 private:
+    // Callback nội bộ: dựng RawEvent từ EVENT_RECORD rồi đẩy vào sink_.
+    void on_raw_record(ProviderId provider, const void* record, const void* trace_context);
+
     const Config& cfg_;
     RawEventSink sink_;
     std::thread trace_thread_;
     std::atomic<bool> running_{false};
+    std::atomic<std::uint64_t> events_received_{0};
 
-    struct Impl;  // che giấu krabs::kernel_trace
+    struct Impl;  // che giấu krabs::user_trace + providers
     std::unique_ptr<Impl> impl_;
 };
 

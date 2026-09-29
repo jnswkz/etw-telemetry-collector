@@ -17,6 +17,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Thiết lập môi trường MSVC (cl.exe/link.exe) để Ninja KHÔNG chọn nhầm
+      # MinGW gcc — vcpkg build lib bằng MSVC nên phải link bằng MSVC.
+      - name: Setup MSVC dev environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
       - name: Bootstrap vcpkg
         shell: pwsh
         run: |

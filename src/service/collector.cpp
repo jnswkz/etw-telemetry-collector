@@ -41,6 +41,7 @@ void Collector::consumer_loop() {
             break;  // ring closed
         graph_.ingest(*ev);
         store_.append(*ev);
+        events_ingested_.fetch_add(1, std::memory_order_relaxed);
         if (++since_prune >= 1000) {
             pruner_.run_cycle();
             since_prune = 0;

@@ -44,6 +44,9 @@ add_library(etwc_warnings INTERFACE)
 if(MSVC)
     target_compile_options(etwc_warnings INTERFACE
         /W4 /permissive- /EHsc /utf-8
+        # Hạ cảnh báo cho header external (SYSTEM include) xuống 0 để /WX không
+        # vấp phải cảnh báo trong krabsetw/sqlite/nlohmann.
+        /external:W0
         $<$<BOOL:${ETWC_WARNINGS_AS_ERRORS}>:/WX>)
 endif()
 

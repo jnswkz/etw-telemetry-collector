@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <thread>
 
@@ -26,6 +27,10 @@ public:
     void start();  // khởi động producer (ETW) + consumer threads
     void stop();   // dừng gọn gàng, flush storage
 
+    // Số liệu quan trắc (phục vụ chế độ console / đo throughput).
+    std::uint64_t events_received() const { return sensor_.events_received(); }
+    std::uint64_t events_ingested() const { return events_ingested_.load(); }
+
 private:
     void consumer_loop();  // rút từ ring buffer, dựng graph, prune, lưu
 
@@ -39,6 +44,7 @@ private:
 
     std::thread consumer_thread_;
     std::atomic<bool> running_{false};
+    std::atomic<std::uint64_t> events_ingested_{0};  // đã đưa vào graph/storage
 };
 
 }  // namespace etwc
