@@ -11,10 +11,11 @@ struct EtwSession::Impl {
     // krabs::user_trace trace;  // hoặc kernel_trace
 };
 
-EtwSession::EtwSession(const Config& cfg)
-    : cfg_(cfg), impl_(std::make_unique<Impl>()) {}
+EtwSession::EtwSession(const Config& cfg) : cfg_(cfg), impl_(std::make_unique<Impl>()) {}
 
-EtwSession::~EtwSession() { stop(); }
+EtwSession::~EtwSession() {
+    stop();
+}
 
 void EtwSession::configure_providers() {
     // TODO: đăng ký 4 provider theo cfg_ (process/file/registry/network),
@@ -33,9 +34,11 @@ void EtwSession::start(RawEventSink sink) {
 }
 
 void EtwSession::stop() {
-    if (!running_.exchange(false)) return;
+    if (!running_.exchange(false))
+        return;
     // TODO: impl_->trace.stop();
-    if (trace_thread_.joinable()) trace_thread_.join();
+    if (trace_thread_.joinable())
+        trace_thread_.join();
 }
 
 }  // namespace etwc

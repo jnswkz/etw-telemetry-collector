@@ -18,14 +18,14 @@ namespace etwc {
 template <typename T>
 class RingBuffer {
 public:
-    explicit RingBuffer(std::size_t capacity)
-        : capacity_(capacity), buffer_(capacity) {}
+    explicit RingBuffer(std::size_t capacity) : capacity_(capacity), buffer_(capacity) {}
 
     // Producer: chặn tới khi có chỗ. Trả về false nếu buffer đã bị close().
     bool push(T value) {
         std::unique_lock lock(mutex_);
         not_full_.wait(lock, [&] { return count_ < capacity_ || closed_; });
-        if (closed_) return false;
+        if (closed_)
+            return false;
         buffer_[tail_] = std::move(value);
         tail_ = (tail_ + 1) % capacity_;
         ++count_;
@@ -37,7 +37,8 @@ public:
     std::optional<T> pop() {
         std::unique_lock lock(mutex_);
         not_empty_.wait(lock, [&] { return count_ > 0 || closed_; });
-        if (count_ == 0) return std::nullopt;
+        if (count_ == 0)
+            return std::nullopt;
         T value = std::move(buffer_[head_]);
         head_ = (head_ + 1) % capacity_;
         --count_;

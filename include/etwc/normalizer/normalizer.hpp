@@ -20,9 +20,9 @@ public:
 
 private:
     EventKind map_opcode(const RawEvent& raw) const;
-    void enrich_lineage(NormalizedEvent& ev) const;      // parentName
-    void enrich_privilege(NormalizedEvent& ev) const;    // is_system/elevated
-    void enrich_command_line(NormalizedEvent& ev) const; // PEB fallback
+    void enrich_lineage(NormalizedEvent& ev) const;       // parentName
+    void enrich_privilege(NormalizedEvent& ev) const;     // is_system/elevated
+    void enrich_command_line(NormalizedEvent& ev) const;  // PEB fallback
 };
 
 }  // namespace etwc

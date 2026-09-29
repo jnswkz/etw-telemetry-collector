@@ -20,7 +20,8 @@ void set_state(DWORD state, DWORD wait_hint = 0) {
     g_status.dwCurrentState = state;
     g_status.dwControlsAccepted = (state == SERVICE_START_PENDING) ? 0 : SERVICE_ACCEPT_STOP;
     g_status.dwWaitHint = wait_hint;
-    if (g_status_handle) SetServiceStatus(g_status_handle, &g_status);
+    if (g_status_handle)
+        SetServiceStatus(g_status_handle, &g_status);
 }
 
 void WINAPI service_ctrl_handler(DWORD ctrl) {
@@ -33,7 +34,8 @@ void WINAPI service_ctrl_handler(DWORD ctrl) {
 void WINAPI service_main(DWORD, LPWSTR*) {
     g_status.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
     g_status_handle = RegisterServiceCtrlHandlerW(kServiceName, service_ctrl_handler);
-    if (!g_status_handle) return;
+    if (!g_status_handle)
+        return;
 
     set_state(SERVICE_START_PENDING, 3000);
 

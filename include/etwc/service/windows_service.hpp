@@ -10,8 +10,8 @@ namespace service {
 constexpr wchar_t kServiceName[] = L"EtwTelemetryCollector";
 constexpr wchar_t kDisplayName[] = L"ETW Telemetry Collector";
 
-int install();     // đăng ký service với SCM
-int uninstall();   // gỡ service
+int install();         // đăng ký service với SCM
+int uninstall();       // gỡ service
 int run_as_service();  // gọi StartServiceCtrlDispatcher
 int run_as_console();  // chạy foreground để debug (Ctrl+C để dừng)
 

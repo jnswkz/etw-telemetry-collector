@@ -28,8 +28,8 @@ private:
 
     BehaviorGraph& graph_;
     std::unordered_set<std::string> clean_process_allowlist_ = {
-        "explorer.exe", "services.exe", "svchost.exe", "lsass.exe",
-        "csrss.exe", "wininit.exe", "winlogon.exe",
+        "explorer.exe", "services.exe", "svchost.exe",  "lsass.exe",
+        "csrss.exe",    "wininit.exe",  "winlogon.exe",
     };
 };
 

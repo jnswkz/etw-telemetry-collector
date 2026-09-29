@@ -1,7 +1,7 @@
-#include "etwc/buffer/ring_buffer.hpp"
-
 #include <thread>
 #include <vector>
+
+#include "etwc/buffer/ring_buffer.hpp"
 
 #ifdef ETWC_HAVE_CATCH2
 #include <catch2/catch_test_macros.hpp>

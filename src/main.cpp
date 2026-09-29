@@ -12,9 +12,12 @@ int wmain(int argc, wchar_t** argv) {
     using namespace etwc::service;
 
     if (argc >= 2) {
-        if (std::wcscmp(argv[1], L"--console") == 0)   return run_as_console();
-        if (std::wcscmp(argv[1], L"--install") == 0)   return install();
-        if (std::wcscmp(argv[1], L"--uninstall") == 0) return uninstall();
+        if (std::wcscmp(argv[1], L"--console") == 0)
+            return run_as_console();
+        if (std::wcscmp(argv[1], L"--install") == 0)
+            return install();
+        if (std::wcscmp(argv[1], L"--uninstall") == 0)
+            return uninstall();
     }
     return run_as_service();
 }

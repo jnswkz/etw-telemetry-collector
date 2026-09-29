@@ -11,10 +11,13 @@ Collector::Collector(Config cfg)
       store_(cfg_),
       sensor_(cfg_) {}
 
-Collector::~Collector() { stop(); }
+Collector::~Collector() {
+    stop();
+}
 
 void Collector::start() {
-    if (running_.exchange(true)) return;
+    if (running_.exchange(true))
+        return;
     store_.open();
 
     // Consumer: rút NormalizedEvent khỏi ring -> graph + storage + prune.
@@ -34,7 +37,8 @@ void Collector::consumer_loop() {
     std::size_t since_prune = 0;
     while (running_) {
         auto ev = ring_.pop();
-        if (!ev) break;  // ring closed
+        if (!ev)
+            break;  // ring closed
         graph_.ingest(*ev);
         store_.append(*ev);
         if (++since_prune >= 1000) {
@@ -46,10 +50,12 @@ void Collector::consumer_loop() {
 }
 
 void Collector::stop() {
-    if (!running_.exchange(false)) return;
+    if (!running_.exchange(false))
+        return;
     sensor_.stop();
     ring_.close();
-    if (consumer_thread_.joinable()) consumer_thread_.join();
+    if (consumer_thread_.joinable())
+        consumer_thread_.join();
     store_.close();
     ETWC_LOG_INFO("Collector stopped");
 }

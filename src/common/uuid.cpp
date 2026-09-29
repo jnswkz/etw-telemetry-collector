@@ -19,11 +19,8 @@ std::string generate_uuid_v4() {
     lo = (lo & 0x3FFFFFFFFFFFFFFFULL) | 0x8000000000000000ULL;
 
     char buf[37];
-    std::snprintf(buf, sizeof(buf),
-                  "%08x-%04x-%04x-%04x-%012llx",
-                  static_cast<unsigned>(hi >> 32),
-                  static_cast<unsigned>((hi >> 16) & 0xFFFF),
-                  static_cast<unsigned>(hi & 0xFFFF),
+    std::snprintf(buf, sizeof(buf), "%08x-%04x-%04x-%04x-%012llx", static_cast<unsigned>(hi >> 32),
+                  static_cast<unsigned>((hi >> 16) & 0xFFFF), static_cast<unsigned>(hi & 0xFFFF),
                   static_cast<unsigned>(lo >> 48),
                   static_cast<unsigned long long>(lo & 0xFFFFFFFFFFFFULL));
     return std::string(buf);

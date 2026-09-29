@@ -14,13 +14,15 @@ struct SqliteStore::Impl {
     static constexpr std::size_t kFlushThreshold = 512;
 };
 
-SqliteStore::SqliteStore(const Config& cfg)
-    : cfg_(cfg), impl_(std::make_unique<Impl>()) {}
+SqliteStore::SqliteStore(const Config& cfg) : cfg_(cfg), impl_(std::make_unique<Impl>()) {}
 
-SqliteStore::~SqliteStore() { close(); }
+SqliteStore::~SqliteStore() {
+    close();
+}
 
 void SqliteStore::open() {
-    if (!cfg_.enable_sqlite) return;
+    if (!cfg_.enable_sqlite)
+        return;
     // TODO: sqlite3_open_v2(cfg_.sqlite_path, &db_, ...);
     ensure_schema();
     ETWC_LOG_INFO("SqliteStore opened (stub)");
@@ -37,19 +39,23 @@ void SqliteStore::ensure_schema() {
 }
 
 void SqliteStore::append(const NormalizedEvent& ev) {
-    if (!cfg_.enable_sqlite) return;
+    if (!cfg_.enable_sqlite)
+        return;
     impl_->pending.push_back(ev);
-    if (impl_->pending.size() >= Impl::kFlushThreshold) flush();
+    if (impl_->pending.size() >= Impl::kFlushThreshold)
+        flush();
 }
 
 void SqliteStore::flush() {
-    if (impl_->pending.empty()) return;
+    if (impl_->pending.empty())
+        return;
     // TODO: BEGIN; bind + step cho từng row; COMMIT.
     impl_->pending.clear();
 }
 
 void SqliteStore::close() {
-    if (!db_ && impl_ && impl_->pending.empty()) return;
+    if (!db_ && impl_ && impl_->pending.empty())
+        return;
     flush();
     // TODO: sqlite3_close(db_); db_ = nullptr;
 }

@@ -35,7 +35,7 @@ private:
     std::thread trace_thread_;
     std::atomic<bool> running_{false};
 
-    struct Impl;                 // che giấu krabs::kernel_trace
+    struct Impl;  // che giấu krabs::kernel_trace
     std::unique_ptr<Impl> impl_;
 };
 

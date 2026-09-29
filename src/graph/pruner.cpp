@@ -3,8 +3,7 @@
 namespace etwc {
 
 bool Pruner::is_long_running_system(const Vertex& v) const {
-    return v.type == EntityType::Process &&
-           clean_process_allowlist_.count(v.label) > 0;
+    return v.type == EntityType::Process && clean_process_allowlist_.count(v.label) > 0;
 }
 
 std::size_t Pruner::purge_dead_nodes() {

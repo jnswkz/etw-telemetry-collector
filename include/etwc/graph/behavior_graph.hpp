@@ -16,11 +16,11 @@ using VertexId = std::uint64_t;
 struct Vertex {
     VertexId id = 0;
     EntityType type = EntityType::Process;
-    std::string key;          // định danh logic (PID, path, endpoint...)
-    std::string label;        // tên hiển thị
+    std::string key;    // định danh logic (PID, path, endpoint...)
+    std::string label;  // tên hiển thị
     Timestamp first_seen = 0;
     Timestamp last_seen = 0;
-    bool alive = true;        // process còn sống? (phục vụ pruning)
+    bool alive = true;  // process còn sống? (phục vụ pruning)
 };
 
 // Cạnh (quan hệ nhân quả) — mang nhãn hành vi và thời điểm.
@@ -42,8 +42,8 @@ public:
     void ingest(const NormalizedEvent& ev);
 
     // Tra/khởi tạo nút theo (type, key). Idempotent.
-    VertexId get_or_create_vertex(EntityType type, const std::string& key,
-                                  const std::string& label, Timestamp ts);
+    VertexId get_or_create_vertex(EntityType type, const std::string& key, const std::string& label,
+                                  Timestamp ts);
 
     void add_edge(VertexId src, VertexId dst, EventKind kind, Timestamp ts);
 
@@ -59,8 +59,8 @@ private:
 
     std::unordered_map<VertexId, Vertex> vertices_;
     std::unordered_map<VertexId, std::vector<Edge>> adjacency_;  // adjacency list
-    std::unordered_map<std::string, VertexId> index_;           // (type|key) -> id
-    std::unordered_map<Pid, VertexId> pid_index_;               // PID -> process vertex
+    std::unordered_map<std::string, VertexId> index_;            // (type|key) -> id
+    std::unordered_map<Pid, VertexId> pid_index_;                // PID -> process vertex
     VertexId next_id_ = 1;
     std::size_t edge_count_ = 0;
 };

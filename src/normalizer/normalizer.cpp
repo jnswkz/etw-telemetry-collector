@@ -10,7 +10,8 @@ Normalizer::Normalizer() = default;
 
 std::optional<NormalizedEvent> Normalizer::normalize(const RawEvent& raw) {
     EventKind kind = map_opcode(raw);
-    if (kind == EventKind::Unknown) return std::nullopt;
+    if (kind == EventKind::Unknown)
+        return std::nullopt;
 
     NormalizedEvent ev;
     ev.uuid = generate_uuid_v4();

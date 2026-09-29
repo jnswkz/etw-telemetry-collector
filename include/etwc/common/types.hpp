@@ -18,7 +18,7 @@ enum class EventKind : std::uint8_t {
     RegSetValue,
     RegCreateKey,
     RegDeleteKey,
-    NetConnect,      // outbound socket
+    NetConnect,  // outbound socket
     DnsQuery,
 };
 

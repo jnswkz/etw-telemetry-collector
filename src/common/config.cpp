@@ -4,7 +4,9 @@
 
 namespace etwc {
 
-Config Config::defaults() { return Config{}; }
+Config Config::defaults() {
+    return Config{};
+}
 
 Config Config::load(const std::filesystem::path& /*file*/) {
     // TODO: đọc file JSON, ghi đè các trường mặc định.

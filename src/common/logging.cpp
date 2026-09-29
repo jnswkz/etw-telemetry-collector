@@ -20,11 +20,16 @@ std::size_t g_written_bytes = 0;
 
 const char* level_name(LogLevel l) {
     switch (l) {
-        case LogLevel::Trace: return "TRACE";
-        case LogLevel::Debug: return "DEBUG";
-        case LogLevel::Info:  return "INFO";
-        case LogLevel::Warn:  return "WARN";
-        case LogLevel::Error: return "ERROR";
+        case LogLevel::Trace:
+            return "TRACE";
+        case LogLevel::Debug:
+            return "DEBUG";
+        case LogLevel::Info:
+            return "INFO";
+        case LogLevel::Warn:
+            return "WARN";
+        case LogLevel::Error:
+            return "ERROR";
     }
     return "?";
 }
@@ -40,9 +45,8 @@ std::string now_timestamp() {
     localtime_s(&tm, &t);
 
     char buf[32];
-    std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d.%03d",
-                  tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-                  tm.tm_hour, tm.tm_min, tm.tm_sec,
+    std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d.%03d", tm.tm_year + 1900,
+                  tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec,
                   static_cast<int>(ms.count()));
     return buf;
 }
@@ -54,7 +58,8 @@ std::string this_thread_id() {
 }
 
 void open_file_locked() {
-    if (g_cfg.file_path.empty()) return;
+    if (g_cfg.file_path.empty())
+        return;
     const std::filesystem::path path{g_cfg.file_path};
     std::error_code ec;
     if (path.has_parent_path()) {
@@ -70,7 +75,8 @@ void open_file_locked() {
 
 // Xoay vòng: collector.log -> .1, .1 -> .2, ... xóa file cũ nhất.
 void rotate_locked() {
-    if (!g_file || g_cfg.file_path.empty()) return;
+    if (!g_file || g_cfg.file_path.empty())
+        return;
     std::fclose(g_file);
     g_file = nullptr;
 
@@ -108,7 +114,8 @@ void log_init(std::string_view file_path, LogLevel min_level) {
 }
 
 void log_write(LogLevel level, std::string_view msg) {
-    if (level < g_cfg.min_level) return;
+    if (level < g_cfg.min_level)
+        return;
 
     std::string line = now_timestamp();
     line += " [";
@@ -126,7 +133,8 @@ void log_write(LogLevel level, std::string_view msg) {
     FILE* out = g_file ? g_file : stderr;
     std::fwrite(line.data(), 1, line.size(), out);
     std::fflush(out);
-    if (g_file) g_written_bytes += line.size();
+    if (g_file)
+        g_written_bytes += line.size();
 }
 
 void log_shutdown() {

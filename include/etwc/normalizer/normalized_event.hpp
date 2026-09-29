@@ -11,9 +11,9 @@ namespace etwc {
 // Định dạng thống nhất sau lớp Normalizer (step 2).
 // Mọi sự kiện thô ETW đều được đưa về struct này trước khi vào Ring Buffer.
 struct NormalizedEvent {
-    std::string uuid;          // UUID v4
+    std::string uuid;  // UUID v4
     EventKind kind = EventKind::Unknown;
-    Timestamp timestamp = 0;   // FILETIME 100ns
+    Timestamp timestamp = 0;  // FILETIME 100ns
 
     // --- Chủ thể (process gây ra sự kiện) ---
     Pid pid = 0;

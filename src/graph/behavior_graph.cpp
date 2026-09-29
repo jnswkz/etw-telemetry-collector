@@ -36,8 +36,7 @@ void BehaviorGraph::add_edge(VertexId src, VertexId dst, EventKind kind, Timesta
 
 void BehaviorGraph::ingest(const NormalizedEvent& ev) {
     // Nút chủ thể (process).
-    VertexId proc = get_or_create_vertex(EntityType::Process,
-                                         std::to_string(ev.pid),
+    VertexId proc = get_or_create_vertex(EntityType::Process, std::to_string(ev.pid),
                                          ev.process_name, ev.timestamp);
     pid_index_[ev.pid] = proc;
 
@@ -45,43 +44,41 @@ void BehaviorGraph::ingest(const NormalizedEvent& ev) {
         case EventKind::ProcessCreate: {
             // Liên kết nhân quả cha -> con.
             if (ev.ppid != 0) {
-                VertexId parent = get_or_create_vertex(
-                    EntityType::Process, std::to_string(ev.ppid),
-                    ev.parent_name, ev.timestamp);
+                VertexId parent = get_or_create_vertex(EntityType::Process, std::to_string(ev.ppid),
+                                                       ev.parent_name, ev.timestamp);
                 add_edge(parent, proc, ev.kind, ev.timestamp);
             }
             break;
         }
         case EventKind::ProcessTerminate: {
-            if (Vertex* v = find_vertex(proc)) v->alive = false;
+            if (Vertex* v = find_vertex(proc))
+                v->alive = false;
             break;
         }
         case EventKind::FileRead:
         case EventKind::FileWrite:
         case EventKind::FileDelete:
         case EventKind::FileRename: {
-            VertexId f = get_or_create_vertex(EntityType::File, ev.target,
-                                              ev.target, ev.timestamp);
+            VertexId f = get_or_create_vertex(EntityType::File, ev.target, ev.target, ev.timestamp);
             add_edge(proc, f, ev.kind, ev.timestamp);
             break;
         }
         case EventKind::RegSetValue:
         case EventKind::RegCreateKey:
         case EventKind::RegDeleteKey: {
-            VertexId r = get_or_create_vertex(EntityType::Registry, ev.target,
-                                              ev.target, ev.timestamp);
+            VertexId r =
+                get_or_create_vertex(EntityType::Registry, ev.target, ev.target, ev.timestamp);
             add_edge(proc, r, ev.kind, ev.timestamp);
             break;
         }
         case EventKind::NetConnect: {
-            VertexId s = get_or_create_vertex(EntityType::Socket, ev.target,
-                                              ev.target, ev.timestamp);
+            VertexId s =
+                get_or_create_vertex(EntityType::Socket, ev.target, ev.target, ev.timestamp);
             add_edge(proc, s, ev.kind, ev.timestamp);
             break;
         }
         case EventKind::DnsQuery: {
-            VertexId d = get_or_create_vertex(EntityType::Dns, ev.target,
-                                              ev.target, ev.timestamp);
+            VertexId d = get_or_create_vertex(EntityType::Dns, ev.target, ev.target, ev.timestamp);
             add_edge(proc, d, ev.kind, ev.timestamp);
             break;
         }

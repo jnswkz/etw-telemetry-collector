@@ -18,5 +18,7 @@ TEST_CASE("BehaviorGraph links parent -> child on ProcessCreate", "[graph]") {
     REQUIRE(g.edge_count() == 1);
 }
 #else
-int test_behavior_graph_fallback() { return 0; }
+int test_behavior_graph_fallback() {
+    return 0;
+}
 #endif
