@@ -14,18 +14,25 @@ jobs:
 
       # Thiết lập môi trường MSVC (cl.exe/link.exe) để Ninja KHÔNG chọn nhầm
       # MinGW gcc — vcpkg build lib bằng MSVC nên phải link bằng MSVC.
-      # Lưu ý: bước này có thể tự set VCPKG_ROOT sang vcpkg bundled của VS,
-      # nên ta ghi đè VCPKG_ROOT ở bước sau (sau bước này để thắng).
       - name: Setup MSVC dev environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: amd64
 
-      # Dùng vcpkg cài sẵn trên runner (C:\vcpkg); ép VCPKG_ROOT ghi đè giá trị
-      # mà msvc-dev-cmd có thể đã đặt.
-      - name: Set VCPKG_ROOT to runner vcpkg
+      # Ninja không chắc có sẵn trên PATH -> cài rõ ràng.
+      - name: Setup Ninja
         shell: pwsh
-        run: '"VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8'
+        run: choco install ninja -y --no-progress
+
+      # Clone vcpkg ĐẦY ĐỦ (không shallow) để có commit baseline trong lịch sử,
+      # rồi ép VCPKG_ROOT (sau msvc-dev-cmd để thắng giá trị nó có thể đã đặt).
+      - name: Setup vcpkg
+        shell: pwsh
+        run: |
+          $root = "${{ github.workspace }}/vcpkg"
+          git clone https://github.com/microsoft/vcpkg $root
+          & "$root/bootstrap-vcpkg.bat" -disableMetrics
+          "VCPKG_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Configure (CMake preset)
         shell: pwsh
