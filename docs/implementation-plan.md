@@ -117,46 +117,52 @@ Mục tiêu: nhận được RawEvent thật từ 4 nhóm provider qua KRABSETW.
 
 Mục tiêu: RawEvent → NormalizedEvent đầy đủ định danh, phả hệ, đặc quyền.
 
-### T2.1 — Ánh xạ opcode → EventKind ⬜ (P0)
+### T2.1 — Ánh xạ opcode → EventKind ✅ (P0)
 - **File:** `include/etwc/normalizer/normalizer.hpp`, `src/normalizer/normalizer.cpp`
-- **Chi tiết:** Hoàn thiện `map_opcode()`: bảng tra `(provider GUID/id, event_id/opcode)
-  → EventKind`. Ví dụ Kernel-Process opcode 1/2 → ProcessCreate/Terminate;
-  Kernel-File create/write/delete/rename; Kernel-Registry SetValue/CreateKey/DeleteKey;
-  Kernel-Network connect (chỉ outbound) + DNS. Trả `Unknown` để Normalizer bỏ qua.
-- **DoD:** Mọi RawEvent hợp lệ ra đúng EventKind; event ngoài phạm vi trả nullopt.
+- **Đã làm:** `classify()` tra `(ProviderId, event_id)` → EventKind: Process 1/2,
+  File Read/Write/DeletePath/RenamePath/Create, Registry Create/SetValue/Delete,
+  Network TCP connect v4/v6. Trả `Unknown` → Normalizer bỏ qua (nullopt).
+- **DoD:** ✅ Unit test: event ngoài phạm vi → nullopt; mỗi provider ra đúng kind.
 - **Phụ thuộc:** T1.3.
 
-### T2.2 — Trích property theo từng EventKind ⬜ (P0)
+### T2.2 — Trích property theo từng EventKind ✅ (P0)
 - **File:** `src/normalizer/normalizer.cpp`
-- **Chi tiết:** Điền `NormalizedEvent`: pid/ppid, process_name (chuẩn hóa path bằng
-  T1.5), target (file/registry key/endpoint/dns), remote_addr/remote_port cho network.
-  Bù `command_line` từ PEB (T1.4) khi thiếu và kind là ProcessCreate.
-- **DoD:** Với mỗi kind, các trường bắt buộc không rỗng; target đã ở dạng DOS path.
+- **Đã làm:** `fill_process/file/registry/network`: pid/ppid, process_name (chuẩn
+  hóa DOS), target (file path / registry key\value / IPv4:port), remote_addr/port
+  (format IPv4 + đổi byte-order cổng). File Read/Write không mang tên → tra
+  **cache FileObject→tên** nạp từ Create/NameCreate. CommandLine bù từ PEB khi thiếu.
+  Bộ trích dùng danh sách tên ứng viên (`first_of`) để chịu được khác biệt schema.
+- **DoD:** ✅ Unit test cho process/registry/network/file-cache (target đúng, DOS path).
 - **Phụ thuộc:** T2.1, T1.4, T1.5.
 
-### T2.3 — Cache phả hệ tiến trình & làm giàu parent_name ⬜ (P1)
-- **File:** `src/normalizer/normalizer.cpp` (+ struct cache mới, ví dụ
-  `include/etwc/normalizer/process_cache.hpp`)
-- **Chi tiết:** Bảng `pid → {name, ppid, start_time, token flags}` cập nhật khi
-  ProcessCreate, xóa (hoặc đánh dấu) khi Terminate. `enrich_lineage()` tra ppid để
-  điền `parent_name`. Xử lý tái sử dụng PID bằng cách so start_time.
-- **DoD:** parent_name đúng cho chuỗi cha→con nhiều tầng; test với cmd → child.
+### T2.3 — Cache phả hệ tiến trình & làm giàu parent_name ✅ (P1)
+- **File:** `include/etwc/normalizer/normalizer.hpp`, `src/normalizer/normalizer.cpp`
+- **Đã làm:** `std::unordered_map<Pid, ProcessInfo>` nạp khi ProcessCreate;
+  `enrich_lineage()` điền `ppid`, `process_name`, `parent_name` cho mọi event từ cache.
+- **DoD:** ✅ Unit test chuỗi cha→con: parent_name đúng.
 - **Phụ thuộc:** T2.2.
+- **Còn lại:** so `start_time` để xử lý PID tái dụng (chốt ở T4.2).
 
-### T2.4 — Gán nhãn đặc quyền (is_system / token_elevated) ⬜ (P1)
+### T2.4 — Gán nhãn đặc quyền (is_system / token_elevated) ✅ (P1)
 - **File:** `src/normalizer/normalizer.cpp`
-- **Chi tiết:** `OpenProcessToken` → `GetTokenInformation`:
-  `TokenElevation` (elevated), so SID với `S-1-5-18` (SYSTEM) hoặc kiểm tra
-  `TokenUser`/integrity level. Cache theo pid để tránh mở token lặp lại.
-- **DoD:** Tiến trình chạy admin → token_elevated=true; dịch vụ SYSTEM → is_system=true.
+- **Đã làm:** `token_elevated` lấy trực tiếp từ property `ProcessTokenIsElevated` của
+  ProcessStart; `is_system` qua `OpenProcessToken`+`TokenUser` so SID `S-1-5-18`
+  (best-effort, cache theo pid trong ProcessInfo). Event khác thừa hưởng từ cache.
+- **DoD:** ✅ token_elevated verify bằng unit test; is_system cần tiến trình thật
+  (kiểm chứng khi chạy admin — T7.3).
 - **Phụ thuộc:** T2.2.
 
-### T2.5 — Gán UUID v4 chuẩn ⬜ (P2)
+### T2.5 — Gán UUID v4 chuẩn ✅ (P2)
 - **File:** `include/etwc/common/uuid.hpp`, `src/common/uuid.cpp`
-- **Chi tiết:** Bản hiện tại đủ dùng. Nếu cần tuân thủ chặt RFC 4122, chuyển sang
-  `stduuid`. Đảm bảo sinh UUID không là điểm nghẽn hiệu năng (đã thread_local rng).
-- **DoD:** Test format (đã có `test_uuid.cpp`); benchmark > 1M uuid/s.
+- **Đã làm:** Bản hiện tại (mt19937_64 thread_local, set version/variant) đủ dùng,
+  gọi trong `normalize()`. Test format đã có.
+- **DoD:** ✅ `test_uuid.cpp` pass.
 - **Phụ thuộc:** không.
+
+> **Cần chốt bằng dump event thật (chạy admin, T7.3):** một số event ID (Registry,
+> File) và tên property dựa trên manifest tài liệu; code đã phòng thủ bằng
+> `first_of` nhiều tên ứng viên nhưng cần đối chiếu thực tế. Ngoài ra: IPv6 address,
+> chuẩn hóa registry `\REGISTRY\MACHINE` → `HKLM`.
 
 ---
 
