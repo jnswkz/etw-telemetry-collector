@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -37,6 +38,21 @@ public:
     std::optional<T> pop() {
         std::unique_lock lock(mutex_);
         not_empty_.wait(lock, [&] { return count_ > 0 || closed_; });
+        if (count_ == 0)
+            return std::nullopt;
+        T value = std::move(buffer_[head_]);
+        head_ = (head_ + 1) % capacity_;
+        --count_;
+        not_full_.notify_one();
+        return value;
+    }
+
+    // Consumer có thời hạn: trả nullopt khi hết timeout mà rỗng (hoặc đã close
+    // và rỗng). Cho phép luồng tiêu thụ thức dậy định kỳ để flush/prune.
+    template <class Rep, class Period>
+    std::optional<T> pop_for(const std::chrono::duration<Rep, Period>& timeout) {
+        std::unique_lock lock(mutex_);
+        not_empty_.wait_for(lock, timeout, [&] { return count_ > 0 || closed_; });
         if (count_ == 0)
             return std::nullopt;
         T value = std::move(buffer_[head_]);

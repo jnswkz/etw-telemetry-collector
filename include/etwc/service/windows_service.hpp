@@ -14,6 +14,7 @@ int install();         // đăng ký service với SCM
 int uninstall();       // gỡ service
 int run_as_service();  // gọi StartServiceCtrlDispatcher
 int run_as_console();  // chạy foreground để debug (Ctrl+C để dừng)
+int run_selftest();    // bơm vài event mẫu vào SQLite để kiểm tra storage (không cần admin)
 
 }  // namespace service
 }  // namespace etwc

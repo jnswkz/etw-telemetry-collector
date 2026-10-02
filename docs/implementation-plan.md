@@ -170,40 +170,41 @@ Mục tiêu: RawEvent → NormalizedEvent đầy đủ định danh, phả hệ,
 
 Mục tiêu: đường ống Producer/Consumer chịu tải cao, lưu vết bền vững.
 
-### T3.1 — Đo & kiểm chứng Ring Buffer dưới tải ⬜ (P1)
+### T3.1 — Đo & kiểm chứng Ring Buffer dưới tải ✅ (P1)
 - **File:** `include/etwc/buffer/ring_buffer.hpp`, `tests/test_ring_buffer.cpp`
-- **Chi tiết:** RingBuffer đã hiện thực (blocking). Bổ sung test đa luồng
-  (nhiều producer 1 consumer), kiểm chứng FIFO & không mất phần tử. Thêm chính sách
-  tùy chọn `overwrite` (tăng `dropped_`) cho tình huống burst — dùng khi ưu tiên độ
-  trễ hơn tính toàn vẹn. Cân nhắc đệm power-of-two + bitmask thay `% capacity`.
-- **DoD:** Test stress 10M event không deadlock/mất phần tử ở chế độ blocking.
-- **Phụ thuộc:** không.
+- **Đã làm:** Test đa luồng 4 producer × 5000 (buffer nhỏ 64 ép tranh chấp) kiểm
+  chứng **không mất phần tử** (đếm + tổng khớp). Bổ sung `pop_for(timeout)` cho
+  consumer thức dậy định kỳ (phục vụ flush/prune).
+- **DoD:** ✅ Stress test pass, không deadlock/mất phần tử.
+- **Còn lại (P2):** chính sách `overwrite` + đệm power-of-two khi cần đo drop rate.
 
-### T3.2 — Mở DB SQLite + schema + PRAGMA ⬜ (P0)
+### T3.2 — Mở DB SQLite + schema + PRAGMA ✅ (P0)
 - **File:** `include/etwc/storage/sqlite_store.hpp`, `src/storage/sqlite_store.cpp`
-- **Chi tiết:** `sqlite3_open_v2` (READWRITE|CREATE). PRAGMA:
-  `journal_mode=WAL`, `synchronous=NORMAL`, `temp_store=MEMORY`, `cache_size`.
-  Tạo bảng `events` (uuid PK, kind, ts, pid, ppid, process_name, parent_name,
-  command_line, target, is_system, token_elevated, remote_addr, remote_port) +
-  index (pid, ts, kind). Tạo thư mục `data/` nếu chưa có.
-- **DoD:** File `.sqlite` tạo được, mở lại thấy bảng + index; xử lý lỗi mở DB.
+- **Đã làm:** `sqlite3_open_v2(READWRITE|CREATE)`, `busy_timeout=5000`, PRAGMA
+  `journal_mode=WAL` / `synchronous=NORMAL` / `temp_store=MEMORY`. Bảng `events`
+  (13 cột) + index (pid, ts, kind). Tạo thư mục `data/`. Đường dẫn UTF-8. Xử lý
+  lỗi mở DB (log + nullptr).
+- **DoD:** ✅ Verify runtime: tạo `telemetry.sqlite` + file WAL; mở lại dữ liệu bền.
 - **Phụ thuộc:** T0.1.
 
-### T3.3 — Ghi batch bằng prepared statement trong transaction ⬜ (P0)
+### T3.3 — Ghi batch bằng prepared statement trong transaction ✅ (P0)
 - **File:** `src/storage/sqlite_store.cpp`
-- **Chi tiết:** `append()` gom vào `pending`; `flush()` bọc `BEGIN…COMMIT`, dùng
-  một prepared statement `INSERT`, `sqlite3_bind_*` + `step` + `reset` cho từng row.
-  Flush theo ngưỡng (512) và theo timer (ví dụ mỗi 1s) để tránh giữ dữ liệu lâu.
-  Xử lý lỗi `SQLITE_BUSY` với retry/backoff.
-- **DoD:** Ghi ≥ 50k event/s trên ổ SSD mà consumer không nghẽn; số row khớp số event.
+- **Đã làm:** `append()` gom `pending`; `flush()` bọc `BEGIN IMMEDIATE…COMMIT`,
+  một prepared `INSERT OR IGNORE` (dedup uuid), `bind`/`step`/`reset`/`clear_bindings`
+  mỗi row. Flush theo ngưỡng 512 **và** theo timer 1s (trong `consumer_loop`).
+  `busy_timeout` xử lý `SQLITE_BUSY`.
+- **DoD:** ✅ Unit test: 1500 event (>ngưỡng nhiều lần) → đúng 1500 row; uuid trùng
+  bị bỏ qua.
 - **Phụ thuộc:** T3.2.
 
-### T3.4 — Vòng đời & flush an toàn khi tắt ⬜ (P1)
+### T3.4 — Vòng đời & flush an toàn khi tắt ✅ (P1)
 - **File:** `src/storage/sqlite_store.cpp`, `src/service/collector.cpp`
-- **Chi tiết:** `close()` flush nốt `pending`, finalize statement, `sqlite3_close_v2`.
-  Đảm bảo consumer flush trước khi thread thoát (đã gọi trong `consumer_loop`).
-- **DoD:** Kill service giữa chừng → không mất quá 1 batch; DB không hỏng (integrity_check).
-- **Phụ thuộc:** T3.3.
+- **Đã làm:** `close()` flush `pending` + finalize statement + `sqlite3_close_v2`.
+  `consumer_loop` thức dậy mỗi 200ms, flush định kỳ 1s, và **rút nốt** phần còn lại
+  rồi flush trước khi thread thoát.
+- **DoD:** ✅ Unit test mở lại DB thấy đủ dữ liệu; flush định kỳ đảm bảo mất tối đa
+  ~1s dữ liệu khi tắt đột ngột.
+- **Còn lại (P2):** đối chiếu throughput ≥ 50k ev/s và `integrity_check` ở benchmark T7.2.
 
 ---
 

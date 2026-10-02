@@ -1,5 +1,7 @@
 #include "etwc/service/collector.hpp"
 
+#include <chrono>
+
 #include "etwc/common/logging.hpp"
 
 namespace etwc {
@@ -34,19 +36,32 @@ void Collector::start() {
 }
 
 void Collector::consumer_loop() {
+    using clock = std::chrono::steady_clock;
+    auto last_flush = clock::now();
     std::size_t since_prune = 0;
-    while (running_) {
-        auto ev = ring_.pop();
-        if (!ev)
-            break;  // ring closed
-        graph_.ingest(*ev);
-        store_.append(*ev);
+
+    auto process = [&](NormalizedEvent& ev) {
+        graph_.ingest(ev);
+        store_.append(ev);
         events_ingested_.fetch_add(1, std::memory_order_relaxed);
         if (++since_prune >= 1000) {
             pruner_.run_cycle();
             since_prune = 0;
         }
+    };
+
+    while (running_) {
+        // Thức dậy định kỳ (200ms) để flush/prune ngay cả khi lưu lượng thấp.
+        if (auto ev = ring_.pop_for(std::chrono::milliseconds(200)))
+            process(*ev);
+        if (clock::now() - last_flush >= std::chrono::seconds(1)) {
+            store_.flush();
+            last_flush = clock::now();
+        }
     }
+
+    // Rút nốt phần còn lại sau khi dừng rồi flush lần cuối.
+    while (auto ev = ring_.pop_for(std::chrono::milliseconds(0))) process(*ev);
     store_.flush();
 }
 

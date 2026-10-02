@@ -7,6 +7,7 @@ add_executable(etwc_tests
     test_uuid.cpp
     test_path_normalizer.cpp
     test_normalizer.cpp
+    test_sqlite_store.cpp
 )
 
 target_link_libraries(etwc_tests PRIVATE etwc_core etwc_warnings)

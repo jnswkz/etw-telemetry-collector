@@ -8,8 +8,11 @@
 
 #include "etwc/common/config.hpp"
 #include "etwc/common/logging.hpp"
+#include "etwc/common/uuid.hpp"
+#include "etwc/normalizer/normalized_event.hpp"
 #include "etwc/service/collector.hpp"
 #include "etwc/service/windows_service.hpp"
+#include "etwc/storage/sqlite_store.hpp"
 
 // Vòng đời Windows Service + chế độ console để debug.
 namespace etwc::service {
@@ -111,6 +114,56 @@ int run_as_console() {
     }
 
     collector.stop();
+    log_shutdown();
+    return 0;
+}
+
+int run_selftest() {
+    Config cfg = Config::defaults();
+    log_init(cfg.log_path.string());
+    log_set_console_echo(true);
+    std::puts("=== SELFTEST: bơm event mẫu vào SQLite ===");
+
+    SqliteStore store(cfg);
+    store.open();
+    if (!store.is_open()) {
+        std::puts("Lỗi: không mở được DB (xem logs/collector.log).");
+        return 1;
+    }
+
+    auto mk = [](EventKind kind, Pid pid, Pid ppid, const char* pname, const char* parent,
+                 const char* target) {
+        NormalizedEvent ev;
+        ev.uuid = generate_uuid_v4();
+        ev.kind = kind;
+        ev.timestamp = static_cast<Timestamp>(::GetTickCount64());
+        ev.pid = pid;
+        ev.ppid = ppid;
+        ev.process_name = pname;
+        ev.parent_name = parent;
+        ev.target = target;
+        return ev;
+    };
+
+    store.append(mk(EventKind::ProcessCreate, 4321, 1234, "C:\\Windows\\notepad.exe",
+                    "C:\\Windows\\explorer.exe", ""));
+    store.append(mk(EventKind::FileWrite, 4321, 1234, "C:\\Windows\\notepad.exe", "",
+                    "C:\\Users\\me\\a.txt"));
+    store.append(mk(EventKind::RegSetValue, 4321, 1234, "C:\\Windows\\notepad.exe", "",
+                    "\\REGISTRY\\MACHINE\\SOFTWARE\\X\\Run"));
+    NormalizedEvent net =
+        mk(EventKind::NetConnect, 4321, 1234, "C:\\Windows\\notepad.exe", "", "93.184.216.34:443");
+    net.remote_addr = "93.184.216.34";
+    net.remote_port = 443;
+    store.append(net);
+    store.append(mk(EventKind::ProcessTerminate, 4321, 1234, "C:\\Windows\\notepad.exe", "", ""));
+
+    store.flush();
+    const std::int64_t n = store.count_events();
+    store.close();
+
+    std::printf("Đã ghi. Tổng bản ghi trong DB: %lld\n", static_cast<long long>(n));
+    std::printf("File DB: %s\n", cfg.sqlite_path.string().c_str());
     log_shutdown();
     return 0;
 }

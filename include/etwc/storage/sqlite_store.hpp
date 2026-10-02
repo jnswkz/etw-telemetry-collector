@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -28,8 +29,14 @@ public:
     void append(const NormalizedEvent& ev);
     void flush();
 
+    bool is_open() const { return db_ != nullptr; }
+
+    // Tổng số bản ghi trong bảng events (flush trước khi đếm). -1 nếu lỗi.
+    std::int64_t count_events();
+
 private:
     void ensure_schema();
+    void prepare_statements();
 
     const Config& cfg_;
     sqlite3* db_ = nullptr;
