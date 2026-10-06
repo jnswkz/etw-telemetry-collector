@@ -281,28 +281,34 @@ Mục tiêu: giữ RAM ổn định 20–40 MB dưới bão log.
 
 Mục tiêu: chạy ổn định như dịch vụ nền, cấu hình linh hoạt.
 
-### T6.1 — Nạp Config từ JSON ⬜ (P1)
-- **File:** `include/etwc/common/config.hpp`, `src/common/config.cpp`, `config/collector.json`
-- **Chi tiết:** Hiện thực `Config::load()` bằng `nlohmann::json`: đọc file, override
-  mặc định, validate (ring_capacity là power-of-two, đường dẫn hợp lệ). Ghi log rõ
-  khi file thiếu → dùng defaults. Xác định đường dẫn config tương đối theo thư mục exe.
-- **DoD:** Sửa `collector.json` (ví dụ tắt network) → hành vi collector đổi theo.
+### T6.1 — Nạp Config từ JSON ✅ (P1)
+- **File:** `src/common/config.cpp`, `config/collector.json`, `src/service/service_main.cpp`
+- **Đã làm:** `Config::load()` dùng `nlohmann::json`: đọc khoan dung (thiếu khóa →
+  giữ mặc định) các nhóm storage/sensor/graph/logging; validate (ring_capacity làm
+  tròn lên lũy thừa 2, clamp prune_interval_ms/soft_vertex_limit). File thiếu/JSON
+  lỗi → defaults + log. `resolve_config_path()` tìm `config/collector.json` cạnh exe
+  rồi thư mục hiện hành; console/service/selftest đều nạp.
+- **DoD:** ✅ 3 unit test (override, defaults khi thiếu file, clamp); verify runtime:
+  `--selftest` log "Config: đã nạp từ 'config\collector.json'".
 - **Phụ thuộc:** T0.1.
 
-### T6.2 — Hoàn thiện vòng đời Service (SCM) ⬜ (P1)
-- **File:** `src/service/service_main.cpp`, `src/service/service_control.cpp`
-- **Chi tiết:** Đã có install/uninstall + control handler. Bổ sung: cấu hình
-  recovery (tự khởi động lại khi crash) qua `ChangeServiceConfig2`; chạy dưới tài
-  khoản `LocalSystem`; xử lý `SERVICE_CONTROL_SHUTDOWN`; ghi Windows Event Log khi
-  start/stop/lỗi. Đặt `dwWaitHint` hợp lý để tránh SCM timeout.
-- **DoD:** `sc start/stop` hoạt động mượt; service tự dậy sau khi bị kill.
+### T6.2 — Hoàn thiện vòng đời Service (SCM) ✅ (P1)
+- **File:** `src/service/service_control.cpp`, `src/service/service_main.cpp`
+- **Đã làm:** install đặt **mô tả** (`SERVICE_CONFIG_DESCRIPTION`) + **recovery** tự
+  khởi động lại sau 5s khi crash (`SERVICE_CONFIG_FAILURE_ACTIONS`, reset mỗi ngày),
+  chạy dưới **LocalSystem**. Control handler xử lý STOP **và SHUTDOWN**, `dwWaitHint`
+  3000ms. Ghi **Windows Event Log** (RegisterEventSource/ReportEvent) khi start/stop.
+- **DoD:** ✅ Build OK; `install` cấu hình đầy đủ. (Kiểm chứng `sc start/stop` + tự
+  dậy cần admin — T7.3.)
 - **Phụ thuộc:** T1.1.
 
-### T6.3 — Quyền & tiền điều kiện khi khởi động ⬜ (P1)
-- **File:** `src/service/collector.cpp`, `src/sensor/etw_session.cpp`
-- **Chi tiết:** Kiểm tra & bật đặc quyền cần thiết (SeDebugPrivilege để đọc PEB/token
-  tiến trình khác) bằng `AdjustTokenPrivileges`. Báo lỗi rõ ràng nếu thiếu quyền.
-- **DoD:** Chạy đúng dưới LocalSystem; đọc được PEB/token của tiến trình user.
+### T6.3 — Quyền & tiền điều kiện khi khởi động ✅ (P1)
+- **File:** `src/service/service_main.cpp`
+- **Đã làm:** `enable_debug_privilege()` bật **SeDebugPrivilege** qua
+  `OpenProcessToken`+`LookupPrivilegeValue`+`AdjustTokenPrivileges` (gọi ở console &
+  service); log rõ nếu thất bại (thiếu admin). Giúp đọc PEB/token tiến trình user khác.
+- **DoD:** ✅ Build OK; log trạng thái đặc quyền. (Đọc PEB tiến trình khác kiểm chứng
+  khi chạy admin — T7.3.)
 - **Phụ thuộc:** T1.4, T2.4.
 
 ---

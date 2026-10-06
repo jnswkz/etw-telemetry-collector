@@ -42,6 +42,63 @@ void WINAPI service_ctrl_handler(DWORD ctrl) {
     }
 }
 
+// Tìm file cấu hình: cạnh exe trước, rồi thư mục hiện hành; rỗng -> dùng mặc định.
+std::filesystem::path resolve_config_path() {
+    wchar_t buf[MAX_PATH];
+    if (GetModuleFileNameW(nullptr, buf, MAX_PATH) > 0) {
+        const std::filesystem::path p =
+            std::filesystem::path(buf).parent_path() / "config" / "collector.json";
+        if (std::filesystem::exists(p))
+            return p;
+    }
+    const std::filesystem::path cwd = std::filesystem::path("config") / "collector.json";
+    if (std::filesystem::exists(cwd))
+        return cwd;
+    return {};
+}
+
+Config load_config() {
+    const std::filesystem::path p = resolve_config_path();
+    return p.empty() ? Config::defaults() : Config::load(p);
+}
+
+// Bật một đặc quyền cho token tiến trình hiện tại.
+bool enable_privilege(LPCWSTR name) {
+    HANDLE tok = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &tok))
+        return false;
+    bool ok = false;
+    LUID luid{};
+    if (LookupPrivilegeValueW(nullptr, name, &luid)) {
+        TOKEN_PRIVILEGES tp{};
+        tp.PrivilegeCount = 1;
+        tp.Privileges[0].Luid = luid;
+        tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+        ok = AdjustTokenPrivileges(tok, FALSE, &tp, sizeof(tp), nullptr, nullptr) != 0 &&
+             GetLastError() == ERROR_SUCCESS;
+    }
+    CloseHandle(tok);
+    return ok;
+}
+
+// SeDebugPrivilege: cần để đọc PEB/token của tiến trình thuộc user khác.
+void enable_debug_privilege() {
+    if (enable_privilege(SE_DEBUG_NAME))
+        ETWC_LOG_INFO("Đã bật SeDebugPrivilege");
+    else
+        ETWC_LOG_WARN("Không bật được SeDebugPrivilege (cần admin) — đọc PEB/token có thể hạn chế");
+}
+
+// Ghi Windows Event Log (best-effort; hiển thị chuỗi chèn trong Event Viewer).
+void eventlog(WORD type, const std::wstring& msg) {
+    HANDLE h = RegisterEventSourceW(nullptr, kServiceName);
+    if (h == nullptr)
+        return;
+    LPCWSTR strings[1] = {msg.c_str()};
+    ReportEventW(h, type, 0, 0, nullptr, 1, 0, strings, nullptr);
+    DeregisterEventSource(h);
+}
+
 void WINAPI service_main(DWORD, LPWSTR*) {
     g_status.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
     g_status_handle = RegisterServiceCtrlHandlerW(kServiceName, service_ctrl_handler);
@@ -50,8 +107,14 @@ void WINAPI service_main(DWORD, LPWSTR*) {
 
     set_state(SERVICE_START_PENDING, 3000);
 
-    Config cfg = Config::defaults();
-    log_init(cfg.log_path.string());
+    log_init(Config::defaults().log_path.string());
+    Config cfg = load_config();
+    if (cfg.log_path != Config::defaults().log_path)
+        log_init(cfg.log_path.string());
+
+    enable_debug_privilege();
+    eventlog(EVENTLOG_INFORMATION_TYPE, L"EtwTelemetryCollector service starting");
+
     Collector collector(cfg);
     collector.start();
     set_state(SERVICE_RUNNING);
@@ -61,6 +124,7 @@ void WINAPI service_main(DWORD, LPWSTR*) {
     }
 
     collector.stop();
+    eventlog(EVENTLOG_INFORMATION_TYPE, L"EtwTelemetryCollector service stopped");
     log_shutdown();
     set_state(SERVICE_STOPPED);
 }
@@ -76,9 +140,12 @@ int run_as_service() {
 }
 
 int run_as_console() {
-    Config cfg = Config::defaults();
-    log_init(cfg.log_path.string());
+    log_init(Config::defaults().log_path.string());
     log_set_console_echo(true);  // in log ra màn hình cho chế độ console
+    Config cfg = load_config();
+    if (cfg.log_path != Config::defaults().log_path)
+        log_init(cfg.log_path.string());
+    enable_debug_privilege();
 
     // Bắt crash cấp tiến trình (SEH) để ghi lại nguyên nhân trước khi chết.
     ::SetUnhandledExceptionFilter([](EXCEPTION_POINTERS* ep) -> LONG {
@@ -124,9 +191,9 @@ int run_as_console() {
 }
 
 int run_selftest() {
-    Config cfg = Config::defaults();
-    log_init(cfg.log_path.string());
+    log_init(Config::defaults().log_path.string());
     log_set_console_echo(true);
+    Config cfg = load_config();
     std::puts("=== SELFTEST: bơm event mẫu vào SQLite ===");
 
     SqliteStore store(cfg);

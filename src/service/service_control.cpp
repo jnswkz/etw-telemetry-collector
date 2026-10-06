@@ -17,14 +17,34 @@ int install() {
     if (!scm)
         return 2;
 
+    // Chạy dưới LocalSystem (account = nullptr) để mở ETW kernel session.
     SC_HANDLE svc =
         CreateServiceW(scm, kServiceName, kDisplayName, SERVICE_ALL_ACCESS,
                        SERVICE_WIN32_OWN_PROCESS, SERVICE_AUTO_START, SERVICE_ERROR_NORMAL, path,
                        nullptr, nullptr, nullptr, nullptr, nullptr);
 
     int rc = svc ? 0 : 3;
-    if (svc)
+    if (svc) {
+        // Mô tả hiển thị trong services.msc.
+        SERVICE_DESCRIPTIONW desc{};
+        desc.lpDescription =
+            const_cast<LPWSTR>(L"ETW-based provenance telemetry collector (UNICORN-inspired).");
+        ChangeServiceConfig2W(svc, SERVICE_CONFIG_DESCRIPTION, &desc);
+
+        // Recovery: tự khởi động lại khi crash (sau 5s), reset bộ đếm mỗi ngày.
+        SC_ACTION actions[3] = {
+            {SC_ACTION_RESTART, 5000},
+            {SC_ACTION_RESTART, 5000},
+            {SC_ACTION_NONE, 0},
+        };
+        SERVICE_FAILURE_ACTIONSW fa{};
+        fa.dwResetPeriod = 86400;
+        fa.cActions = 3;
+        fa.lpsaActions = actions;
+        ChangeServiceConfig2W(svc, SERVICE_CONFIG_FAILURE_ACTIONS, &fa);
+
         CloseServiceHandle(svc);
+    }
     CloseServiceHandle(scm);
     return rc;
 }
