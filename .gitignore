@@ -67,3 +67,6 @@ cmake-build-*/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Gói phát hành (scripts/package.ps1)
+/dist/

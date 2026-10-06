@@ -9,9 +9,13 @@
 namespace etwc::service {
 
 int install() {
-    wchar_t path[MAX_PATH];
-    if (GetModuleFileNameW(nullptr, path, MAX_PATH) == 0)
+    wchar_t exe[MAX_PATH];
+    if (GetModuleFileNameW(nullptr, exe, MAX_PATH) == 0)
         return 1;
+    // Bọc ngoặc kép: tránh lỗ hổng "unquoted service path" khi cài vào
+    // C:\Program Files\... (SCM sẽ thử C:\Program.exe trước dưới LocalSystem).
+    const std::wstring quoted = L"\"" + std::wstring(exe) + L"\"";
+    const wchar_t* path = quoted.c_str();
 
     SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE);
     if (!scm)
