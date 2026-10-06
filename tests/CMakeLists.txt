@@ -10,6 +10,8 @@ add_executable(etwc_tests
     test_sqlite_store.cpp
     test_pruner.cpp
     test_config.cpp
+    test_encoding.cpp
+    test_pipeline.cpp
 )
 
 target_link_libraries(etwc_tests PRIVATE etwc_core etwc_warnings)

@@ -5,16 +5,17 @@
 #include <winternl.h>
 
 #include "etwc/common/encoding.hpp"
+#include "etwc/common/handle.hpp"
 
 #pragma comment(lib, "ntdll.lib")
 
 namespace etwc {
 namespace {
 
-// Mở tiến trình với quyền tối thiểu để đọc PEB. Trả về handle hoặc nullptr.
-HANDLE open_for_read(Pid pid) {
-    return ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, FALSE,
-                         static_cast<DWORD>(pid));
+// Mở tiến trình với quyền tối thiểu để đọc PEB (RAII).
+UniqueHandle open_for_read(Pid pid) {
+    return UniqueHandle(::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, FALSE,
+                                      static_cast<DWORD>(pid)));
 }
 
 // Đọc con trỏ PEB của tiến trình đích.
@@ -59,35 +60,31 @@ bool read_process_parameters(HANDLE h, RTL_USER_PROCESS_PARAMETERS& out) {
 }  // namespace
 
 std::optional<std::string> read_command_line_from_peb(Pid pid) {
-    HANDLE h = open_for_read(pid);
-    if (h == nullptr)
+    UniqueHandle h = open_for_read(pid);
+    if (!h)
         return std::nullopt;
 
-    std::optional<std::string> result;
     RTL_USER_PROCESS_PARAMETERS params{};
-    if (read_process_parameters(h, params)) {
-        std::wstring cmd = read_remote_ustring(h, params.CommandLine);
+    if (read_process_parameters(h.get(), params)) {
+        std::wstring cmd = read_remote_ustring(h.get(), params.CommandLine);
         if (!cmd.empty())
-            result = wide_to_utf8(cmd);
+            return wide_to_utf8(cmd);
     }
-    ::CloseHandle(h);
-    return result;
+    return std::nullopt;
 }
 
 std::optional<std::string> read_image_path_from_peb(Pid pid) {
-    HANDLE h = open_for_read(pid);
-    if (h == nullptr)
+    UniqueHandle h = open_for_read(pid);
+    if (!h)
         return std::nullopt;
 
-    std::optional<std::string> result;
     RTL_USER_PROCESS_PARAMETERS params{};
-    if (read_process_parameters(h, params)) {
-        std::wstring img = read_remote_ustring(h, params.ImagePathName);
+    if (read_process_parameters(h.get(), params)) {
+        std::wstring img = read_remote_ustring(h.get(), params.ImagePathName);
         if (!img.empty())
-            result = wide_to_utf8(img);
+            return wide_to_utf8(img);
     }
-    ::CloseHandle(h);
-    return result;
+    return std::nullopt;
 }
 
 }  // namespace etwc

@@ -64,6 +64,7 @@ target_link_libraries(etwc_core PRIVATE etwc_warnings)
 add_executable(etwcollector
     service/service_main.cpp
     service/service_control.cpp
+    service/benchmark.cpp
     main.cpp
 )
 

@@ -16,6 +16,8 @@ int wmain(int argc, wchar_t** argv) {
             return run_as_console();
         if (std::wcscmp(argv[1], L"--selftest") == 0)
             return run_selftest();
+        if (std::wcscmp(argv[1], L"--bench") == 0)
+            return run_benchmark();
         if (std::wcscmp(argv[1], L"--install") == 0)
             return install();
         if (std::wcscmp(argv[1], L"--uninstall") == 0)

@@ -12,6 +12,7 @@
 #include <initializer_list>
 #include <string>
 
+#include "etwc/common/handle.hpp"
 #include "etwc/common/path_normalizer.hpp"
 #include "etwc/common/uuid.hpp"
 #include "etwc/sensor/peb_reader.hpp"
@@ -68,32 +69,32 @@ std::uint16_t ntohs_port(std::uint32_t v) {
 }
 
 // Kiểm tra tiến trình có chạy dưới SYSTEM (S-1-5-18) không. Best-effort:
-// cần quyền mở token; thất bại -> false.
+// cần quyền mở token; thất bại -> false. HANDLE quản lý bằng RAII.
 bool process_is_system(Pid pid) {
-    HANDLE hProc = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(pid));
-    if (hProc == nullptr)
+    UniqueHandle proc(
+        ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(pid)));
+    if (!proc)
         return false;
-    bool result = false;
-    HANDLE hTok = nullptr;
-    if (::OpenProcessToken(hProc, TOKEN_QUERY, &hTok)) {
-        DWORD len = 0;
-        ::GetTokenInformation(hTok, TokenUser, nullptr, 0, &len);
-        if (len > 0) {
-            std::string blob(len, '\0');
-            if (::GetTokenInformation(hTok, TokenUser, blob.data(), len, &len)) {
-                auto* tu = reinterpret_cast<TOKEN_USER*>(blob.data());
-                PSID system_sid = nullptr;
-                SID_IDENTIFIER_AUTHORITY nt = SECURITY_NT_AUTHORITY;
-                if (::AllocateAndInitializeSid(&nt, 1, SECURITY_LOCAL_SYSTEM_RID, 0, 0, 0, 0, 0, 0,
-                                               0, &system_sid)) {
-                    result = ::EqualSid(tu->User.Sid, system_sid) != 0;
-                    ::FreeSid(system_sid);
-                }
-            }
-        }
-        ::CloseHandle(hTok);
-    }
-    ::CloseHandle(hProc);
+    UniqueHandle tok;
+    if (!::OpenProcessToken(proc.get(), TOKEN_QUERY, tok.put()))
+        return false;
+
+    DWORD len = 0;
+    ::GetTokenInformation(tok.get(), TokenUser, nullptr, 0, &len);
+    if (len == 0)
+        return false;
+    std::string blob(len, '\0');
+    if (!::GetTokenInformation(tok.get(), TokenUser, blob.data(), len, &len))
+        return false;
+
+    auto* tu = reinterpret_cast<TOKEN_USER*>(blob.data());
+    PSID system_sid = nullptr;
+    SID_IDENTIFIER_AUTHORITY nt = SECURITY_NT_AUTHORITY;
+    if (!::AllocateAndInitializeSid(&nt, 1, SECURITY_LOCAL_SYSTEM_RID, 0, 0, 0, 0, 0, 0, 0,
+                                    &system_sid))
+        return false;
+    const bool result = ::EqualSid(tu->User.Sid, system_sid) != 0;
+    ::FreeSid(system_sid);
     return result;
 }
 
