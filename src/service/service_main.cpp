@@ -99,6 +99,36 @@ void eventlog(WORD type, const std::wstring& msg) {
     DeregisterEventSource(h);
 }
 
+// Ghi lại crash cấp tiến trình (SEH) — đặt cho CẢ console lẫn service.
+void install_crash_handler() {
+    ::SetUnhandledExceptionFilter([](EXCEPTION_POINTERS* ep) -> LONG {
+        char buf[160];
+        std::snprintf(buf, sizeof(buf), "FATAL unhandled exception code=0x%08lX addr=%p",
+                      ep->ExceptionRecord->ExceptionCode,
+                      static_cast<void*>(ep->ExceptionRecord->ExceptionAddress));
+        ETWC_LOG_ERROR(buf);
+        log_shutdown();
+        return EXCEPTION_EXECUTE_HANDLER;
+    });
+}
+
+// Khởi tạo logging (vào %ProgramData%, không phải cwd/System32), crash handler,
+// rồi nạp + chuẩn hóa đường dẫn config. Trả về Config đã sẵn sàng.
+Config boot(bool console_echo) {
+    Config def = Config::defaults();
+    def.resolve_paths();
+    log_init(def.log_path.string());
+    if (console_echo)
+        log_set_console_echo(true);
+    install_crash_handler();
+
+    Config cfg = load_config();
+    cfg.resolve_paths();
+    if (cfg.log_path != def.log_path)
+        log_init(cfg.log_path.string());
+    return cfg;
+}
+
 void WINAPI service_main(DWORD, LPWSTR*) {
     g_status.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
     g_status_handle = RegisterServiceCtrlHandlerW(kServiceName, service_ctrl_handler);
@@ -107,11 +137,7 @@ void WINAPI service_main(DWORD, LPWSTR*) {
 
     set_state(SERVICE_START_PENDING, 3000);
 
-    log_init(Config::defaults().log_path.string());
-    Config cfg = load_config();
-    if (cfg.log_path != Config::defaults().log_path)
-        log_init(cfg.log_path.string());
-
+    Config cfg = boot(/*console_echo=*/false);
     enable_debug_privilege();
     eventlog(EVENTLOG_INFORMATION_TYPE, L"EtwTelemetryCollector service starting");
 
@@ -140,27 +166,13 @@ int run_as_service() {
 }
 
 int run_as_console() {
-    log_init(Config::defaults().log_path.string());
-    log_set_console_echo(true);  // in log ra màn hình cho chế độ console
-    Config cfg = load_config();
-    if (cfg.log_path != Config::defaults().log_path)
-        log_init(cfg.log_path.string());
+    Config cfg = boot(/*console_echo=*/true);
     enable_debug_privilege();
 
-    // Bắt crash cấp tiến trình (SEH) để ghi lại nguyên nhân trước khi chết.
-    ::SetUnhandledExceptionFilter([](EXCEPTION_POINTERS* ep) -> LONG {
-        char buf[160];
-        std::snprintf(buf, sizeof(buf), "FATAL unhandled exception code=0x%08lX addr=%p",
-                      ep->ExceptionRecord->ExceptionCode,
-                      static_cast<void*>(ep->ExceptionRecord->ExceptionAddress));
-        ETWC_LOG_ERROR(buf);
-        log_shutdown();
-        return EXCEPTION_EXECUTE_HANDLER;
-    });
-
     std::puts("=== ETW Telemetry Collector (console) ===");
-    std::puts("Log: logs/collector.log | Nhan Ctrl+C de dung.");
-    std::puts("Luu y: can chay bang quyen Administrator de mo ETW session.\n");
+    std::printf("Log: %s\n", cfg.log_path.string().c_str());
+    std::printf("DB:  %s\n", cfg.sqlite_path.string().c_str());
+    std::puts("Nhan Ctrl+C de dung. Can quyen Administrator de mo ETW session.\n");
     std::fflush(stdout);
 
     Collector collector(cfg);
@@ -191,15 +203,13 @@ int run_as_console() {
 }
 
 int run_selftest() {
-    log_init(Config::defaults().log_path.string());
-    log_set_console_echo(true);
-    Config cfg = load_config();
+    Config cfg = boot(/*console_echo=*/true);
     std::puts("=== SELFTEST: bơm event mẫu vào SQLite ===");
 
     SqliteStore store(cfg);
     store.open();
     if (!store.is_open()) {
-        std::puts("Lỗi: không mở được DB (xem logs/collector.log).");
+        std::printf("Lỗi: không mở được DB (xem %s).\n", cfg.log_path.string().c_str());
         return 1;
     }
 
@@ -243,17 +253,20 @@ int run_selftest() {
     const std::int64_t n = store.count_events();
     store.close();
 
-    // Xuất đồ thị để trực quan hóa.
+    // Xuất đồ thị cạnh DB (dưới cùng thư mục dữ liệu).
     std::error_code ec;
-    std::filesystem::create_directories("data", ec);
-    if (std::ofstream dot("data/graph.dot"); dot)
+    const std::filesystem::path data_dir = cfg.sqlite_path.parent_path();
+    std::filesystem::create_directories(data_dir, ec);
+    const std::filesystem::path dot_path = data_dir / "graph.dot";
+    const std::filesystem::path json_path = data_dir / "graph.json";
+    if (std::ofstream dot(dot_path); dot)
         dot << graph.to_dot();
-    if (std::ofstream js("data/graph.json"); js)
+    if (std::ofstream js(json_path); js)
         js << graph.to_json();
 
     std::printf("Đã ghi. Tổng bản ghi trong DB: %lld\n", static_cast<long long>(n));
     std::printf("File DB:    %s\n", cfg.sqlite_path.string().c_str());
-    std::printf("Đồ thị:     data/graph.dot (Graphviz), data/graph.json\n");
+    std::printf("Đồ thị:     %s\n", dot_path.string().c_str());
     std::printf("Graph: %zu nút, %zu cạnh\n", graph.vertex_count(), graph.edge_count());
     log_shutdown();
     return 0;

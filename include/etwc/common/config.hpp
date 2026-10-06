@@ -30,6 +30,13 @@ struct Config {
 
     static Config load(const std::filesystem::path& file);
     static Config defaults();
+
+    // Thư mục gốc dữ liệu: %ProgramData%\EtwCollector (fallback: temp).
+    static std::filesystem::path data_root();
+
+    // Biến log_path/sqlite_path TƯƠNG ĐỐI thành tuyệt đối dưới data_root().
+    // Cần cho chế độ service (SCM chạy từ C:\Windows\System32).
+    void resolve_paths();
 };
 
 }  // namespace etwc

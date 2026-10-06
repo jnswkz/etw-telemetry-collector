@@ -1,5 +1,6 @@
 #include "etwc/common/config.hpp"
 
+#include <cstdlib>
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -22,6 +23,24 @@ std::size_t round_up_pow2(std::size_t v) {
 
 Config Config::defaults() {
     return Config{};
+}
+
+std::filesystem::path Config::data_root() {
+    std::filesystem::path root = std::filesystem::temp_directory_path();
+    char* buf = nullptr;
+    std::size_t len = 0;
+    if (_dupenv_s(&buf, &len, "ProgramData") == 0 && buf != nullptr && *buf != '\0')
+        root = std::filesystem::path(buf);
+    std::free(buf);
+    return root / "EtwCollector";
+}
+
+void Config::resolve_paths() {
+    const std::filesystem::path root = data_root();
+    if (sqlite_path.is_relative())
+        sqlite_path = (root / sqlite_path).make_preferred();
+    if (log_path.is_relative())
+        log_path = (root / log_path).make_preferred();
 }
 
 Config Config::load(const std::filesystem::path& file) {

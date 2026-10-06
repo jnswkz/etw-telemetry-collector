@@ -12,6 +12,10 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Liên kết CRT tĩnh (/MT) để khớp triplet x64-windows-static -> một exe duy nhất,
+# không phụ thuộc sqlite3.dll hay VC++ Redist (chạy trên máy sạch).
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 if(NOT WIN32)
     message(FATAL_ERROR "This project targets Windows only (ETW / KRABSETW).")
 endif()
