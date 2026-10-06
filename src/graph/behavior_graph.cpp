@@ -1,5 +1,8 @@
 #include "etwc/graph/behavior_graph.hpp"
 
+#include <iterator>
+#include <utility>
+
 namespace etwc {
 namespace {
 std::string resource_key(EntityType type, const std::string& key) {
@@ -140,6 +143,45 @@ Vertex* BehaviorGraph::find_vertex(VertexId id) {
 const std::vector<Edge>& BehaviorGraph::out_edges(VertexId id) const {
     auto it = adjacency_.find(id);
     return it == adjacency_.end() ? kEmptyEdges : it->second;
+}
+
+std::size_t BehaviorGraph::remove_vertices(const std::unordered_set<VertexId>& ids) {
+    if (ids.empty())
+        return 0;
+
+    std::size_t removed = 0;
+    for (VertexId id : ids) removed += vertices_.erase(id);
+
+    // Dựng lại adjacency_ + edge_index_ + edge_count_, bỏ cạnh chạm nút đã xóa.
+    std::unordered_map<VertexId, std::vector<Edge>> new_adj;
+    std::unordered_map<std::string, std::size_t> new_eidx;
+    std::size_t new_ecount = 0;
+    for (auto& [src, edges] : adjacency_) {
+        if (ids.count(src))
+            continue;
+        std::vector<Edge> kept;
+        for (const Edge& e : edges) {
+            if (ids.count(e.dst))
+                continue;
+            new_eidx.emplace(edge_key(e.src, e.dst, e.kind), kept.size());
+            kept.push_back(e);
+        }
+        if (!kept.empty()) {
+            new_ecount += kept.size();
+            new_adj.emplace(src, std::move(kept));
+        }
+    }
+    adjacency_ = std::move(new_adj);
+    edge_index_ = std::move(new_eidx);
+    edge_count_ = new_ecount;
+
+    // Dọn chỉ mục tài nguyên và pid.
+    for (auto it = index_.begin(); it != index_.end();)
+        it = ids.count(it->second) ? index_.erase(it) : std::next(it);
+    for (auto it = pid_index_.begin(); it != pid_index_.end();)
+        it = ids.count(it->second) ? pid_index_.erase(it) : std::next(it);
+
+    return removed;
 }
 
 }  // namespace etwc

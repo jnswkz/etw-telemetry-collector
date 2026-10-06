@@ -38,15 +38,26 @@ void Collector::start() {
 void Collector::consumer_loop() {
     using clock = std::chrono::steady_clock;
     auto last_flush = clock::now();
-    std::size_t since_prune = 0;
+    auto last_prune = clock::now();
+    const auto prune_interval =
+        std::chrono::milliseconds(static_cast<long long>(cfg_.prune_interval_ms));
 
     auto process = [&](NormalizedEvent& ev) {
         graph_.ingest(ev);
         store_.append(ev);
         events_ingested_.fetch_add(1, std::memory_order_relaxed);
-        if (++since_prune >= 1000) {
-            pruner_.run_cycle();
-            since_prune = 0;
+    };
+
+    auto maybe_prune = [&] {
+        // Prune theo chu kỳ cấu hình, hoặc khi vượt ngưỡng mềm số nút.
+        if (clock::now() - last_prune >= prune_interval ||
+            graph_.vertex_count() > cfg_.soft_vertex_limit) {
+            const std::size_t removed = pruner_.run_cycle();
+            last_prune = clock::now();
+            if (removed > 0)
+                ETWC_LOG_DEBUG("Pruner removed " + std::to_string(removed) +
+                               " nodes; graph=" + std::to_string(graph_.vertex_count()) +
+                               " nodes/" + std::to_string(graph_.edge_count()) + " edges");
         }
     };
 
@@ -58,6 +69,7 @@ void Collector::consumer_loop() {
             store_.flush();
             last_flush = clock::now();
         }
+        maybe_prune();
     }
 
     // Rút nốt phần còn lại sau khi dừng rồi flush lần cuối.

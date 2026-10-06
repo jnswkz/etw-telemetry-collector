@@ -246,31 +246,33 @@ Mục tiêu: dựng đồ thị provenance streaming đúng và hiệu quả.
 
 Mục tiêu: giữ RAM ổn định 20–40 MB dưới bão log.
 
-### T5.1 — Thu hồi nút chết (Dead Node Purging) ⬜ (P0)
-- **File:** `include/etwc/graph/pruner.hpp`, `src/graph/pruner.cpp`
-- **Chi tiết:** Duyệt các process vertex `alive==false`; điều kiện xóa: mọi con đã
-  chết và không còn "kết nối nhân quả mở" (socket đang mở/handle file còn giữ). Cần
-  bổ sung theo dõi trạng thái đóng tài nguyên (từ event close nếu bật) hoặc timeout.
-  Khi xóa: gỡ khỏi `vertices_`, `adjacency_`, `index_`, `pid_index_`, cập nhật
-  `edge_count_`. Tránh xóa nhầm nút còn được nút sống trỏ tới.
-- **DoD:** Sau khi cây tiến trình kết thúc, số nút giảm về mức nền; không dangling id.
+### T5.1 — Thu hồi nút chết (Dead Node Purging) ✅ (P0)
+- **File:** `include/etwc/graph/behavior_graph.hpp`, `src/graph/behavior_graph.cpp`,
+  `src/graph/pruner.cpp`
+- **Đã làm:** `BehaviorGraph::remove_vertices()` xóa tập nút + mọi cạnh chạm tới,
+  dựng lại `adjacency_`/`edge_index_`/`edge_count_`/`index_`/`pid_index_`.
+  `purge_dead_nodes()`: xóa process `alive==false` **trừ khi còn con tiến trình
+  sống** (giữ phả hệ tới tiến trình sống); xóa tài nguyên **mồ côi** (không còn
+  tiến trình sống sót trỏ tới) — giữ tài nguyên dùng chung với tiến trình sống.
+- **DoD:** ✅ 3 unit test: dọn process chết + file mồ côi; giữ cha chết có con sống;
+  giữ tài nguyên dùng chung.
 - **Phụ thuộc:** T4.1.
 
-### T5.2 — Thu gọn subgraph sạch (Clean Subgraph Collapsing) ⬜ (P1)
+### T5.2 — Thu gọn subgraph sạch (Clean Subgraph Collapsing) ✅ (P1)
 - **File:** `src/graph/pruner.cpp`
-- **Chi tiết:** Với process hệ thống chạy lâu dài trong allowlist
-  (explorer/services/svchost…), thu gọn cây con hoạt động bình thường thành một nút
-  đại diện + bộ đếm, giữ lại chi tiết chỉ khi có tín hiệu bất thường. Cần chính sách
-  "giữ N sự kiện gần nhất" để không mất hoàn toàn ngữ cảnh.
-- **DoD:** RAM khi chạy nền dài hạn ổn định trong 20–40 MB (đo bằng T7.2).
+- **Đã làm:** `collapse_clean_subgraphs()`: với tiến trình trong allowlist
+  (explorer/svchost/services…, so **basename** không phân biệt hoa thường), nếu số
+  tài nguyên vượt cap (64) thì gỡ các tài nguyên **cũ nhất** (theo `last_ts`) —
+  chỉ gỡ khi không tiến trình "bẩn" nào dùng chung — và cộng dồn `Vertex.collapsed`.
+- **DoD:** ✅ Unit test: svchost ghi 200 file → thu gọn còn ≤ cap+parent, `collapsed`
+  tăng. Chỉ tiêu RAM 20–40 MB đo ở benchmark T7.2.
 - **Phụ thuộc:** T5.1.
 
-### T5.3 — Lập lịch prune theo Config ⬜ (P1)
-- **File:** `src/service/collector.cpp`, `include/etwc/common/config.hpp`
-- **Chi tiết:** Hiện `consumer_loop` gọi prune mỗi 1000 event. Đổi sang lịch theo
-  `prune_interval_ms` (timer) và/hoặc khi vượt `soft_vertex_limit`. Đo thời gian mỗi
-  chu kỳ prune, log cảnh báo nếu prune > ngưỡng độ trễ.
-- **DoD:** Prune chạy đúng chu kỳ cấu hình; không làm consumer trễ đáng kể.
+### T5.3 — Lập lịch prune theo Config ✅ (P1)
+- **File:** `src/service/collector.cpp`
+- **Đã làm:** `consumer_loop` prune theo **`prune_interval_ms`** (timer) **hoặc** khi
+  `vertex_count() > soft_vertex_limit`; log DEBUG số nút đã gỡ + kích thước đồ thị.
+- **DoD:** ✅ Prune chạy đúng chu kỳ/ngưỡng; nằm trong vòng consumer (không chặn producer).
 - **Phụ thuộc:** T5.1.
 
 ---

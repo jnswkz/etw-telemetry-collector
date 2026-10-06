@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "etwc/common/types.hpp"
@@ -20,7 +21,8 @@ struct Vertex {
     std::string label;  // tên hiển thị
     Timestamp first_seen = 0;
     Timestamp last_seen = 0;
-    bool alive = true;  // process còn sống? (phục vụ pruning)
+    bool alive = true;            // process còn sống? (phục vụ pruning)
+    std::uint64_t collapsed = 0;  // số cạnh/nút con đã bị thu gọn (clean subgraph)
 };
 
 // Cạnh (quan hệ nhân quả) — gộp các lần lặp lại thành count + last_ts.
@@ -56,6 +58,10 @@ public:
     // Truy cập cho Pruner (step 5).
     Vertex* find_vertex(VertexId id);
     const std::vector<Edge>& out_edges(VertexId id) const;
+
+    // Xóa một tập nút (và mọi cạnh chạm tới chúng), dựng lại chỉ mục. Trả về số
+    // nút thực sự bị xóa. Dùng bởi Pruner.
+    std::size_t remove_vertices(const std::unordered_set<VertexId>& ids);
 
     // Xuất đồ thị để trực quan hóa / điều tra.
     std::string to_dot() const;   // Graphviz
