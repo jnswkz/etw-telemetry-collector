@@ -20,6 +20,7 @@ add_library(etwc_core STATIC
     storage/sqlite_store.cpp
 
     graph/behavior_graph.cpp
+    graph/graph_export.cpp
     graph/pruner.cpp
 
     service/collector.cpp

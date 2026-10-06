@@ -4,11 +4,16 @@
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <system_error>
+#include <vector>
 
 #include "etwc/common/config.hpp"
 #include "etwc/common/logging.hpp"
 #include "etwc/common/uuid.hpp"
+#include "etwc/graph/behavior_graph.hpp"
 #include "etwc/normalizer/normalized_event.hpp"
 #include "etwc/service/collector.hpp"
 #include "etwc/service/windows_service.hpp"
@@ -145,25 +150,44 @@ int run_selftest() {
         return ev;
     };
 
-    store.append(mk(EventKind::ProcessCreate, 4321, 1234, "C:\\Windows\\notepad.exe",
-                    "C:\\Windows\\explorer.exe", ""));
-    store.append(mk(EventKind::FileWrite, 4321, 1234, "C:\\Windows\\notepad.exe", "",
-                    "C:\\Users\\me\\a.txt"));
-    store.append(mk(EventKind::RegSetValue, 4321, 1234, "C:\\Windows\\notepad.exe", "",
-                    "\\REGISTRY\\MACHINE\\SOFTWARE\\X\\Run"));
     NormalizedEvent net =
         mk(EventKind::NetConnect, 4321, 1234, "C:\\Windows\\notepad.exe", "", "93.184.216.34:443");
     net.remote_addr = "93.184.216.34";
     net.remote_port = 443;
-    store.append(net);
-    store.append(mk(EventKind::ProcessTerminate, 4321, 1234, "C:\\Windows\\notepad.exe", "", ""));
 
+    std::vector<NormalizedEvent> events = {
+        mk(EventKind::ProcessCreate, 4321, 1234, "C:\\Windows\\notepad.exe",
+           "C:\\Windows\\explorer.exe", ""),
+        mk(EventKind::FileWrite, 4321, 1234, "C:\\Windows\\notepad.exe", "",
+           "C:\\Users\\me\\a.txt"),
+        mk(EventKind::RegSetValue, 4321, 1234, "C:\\Windows\\notepad.exe", "",
+           "\\REGISTRY\\MACHINE\\SOFTWARE\\X\\Run"),
+        net,
+        mk(EventKind::ProcessTerminate, 4321, 1234, "C:\\Windows\\notepad.exe", "", ""),
+    };
+
+    // Ghi SQLite đồng thời dựng đồ thị nhân quả.
+    BehaviorGraph graph;
+    for (const NormalizedEvent& e : events) {
+        store.append(e);
+        graph.ingest(e);
+    }
     store.flush();
     const std::int64_t n = store.count_events();
     store.close();
 
+    // Xuất đồ thị để trực quan hóa.
+    std::error_code ec;
+    std::filesystem::create_directories("data", ec);
+    if (std::ofstream dot("data/graph.dot"); dot)
+        dot << graph.to_dot();
+    if (std::ofstream js("data/graph.json"); js)
+        js << graph.to_json();
+
     std::printf("Đã ghi. Tổng bản ghi trong DB: %lld\n", static_cast<long long>(n));
-    std::printf("File DB: %s\n", cfg.sqlite_path.string().c_str());
+    std::printf("File DB:    %s\n", cfg.sqlite_path.string().c_str());
+    std::printf("Đồ thị:     data/graph.dot (Graphviz), data/graph.json\n");
+    std::printf("Graph: %zu nút, %zu cạnh\n", graph.vertex_count(), graph.edge_count());
     log_shutdown();
     return 0;
 }

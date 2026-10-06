@@ -2,21 +2,25 @@
 
 namespace etwc {
 namespace {
-std::string make_key(EntityType type, const std::string& key) {
+std::string resource_key(EntityType type, const std::string& key) {
     return std::to_string(static_cast<int>(type)) + "|" + key;
+}
+std::string edge_key(VertexId src, VertexId dst, EventKind kind) {
+    return std::to_string(src) + "|" + std::to_string(dst) + "|" +
+           std::to_string(static_cast<int>(kind));
 }
 const std::vector<Edge> kEmptyEdges{};
 }  // namespace
 
 VertexId BehaviorGraph::get_or_create_vertex(EntityType type, const std::string& key,
                                              const std::string& label, Timestamp ts) {
-    const std::string idx = make_key(type, key);
+    const std::string idx = resource_key(type, key);
     if (auto it = index_.find(idx); it != index_.end()) {
         Vertex& v = vertices_[it->second];
         v.last_seen = ts;
         return it->second;
     }
-    VertexId id = next_id_++;
+    const VertexId id = next_id_++;
     Vertex v;
     v.id = id;
     v.type = type;
@@ -29,56 +33,97 @@ VertexId BehaviorGraph::get_or_create_vertex(EntityType type, const std::string&
     return id;
 }
 
+VertexId BehaviorGraph::new_process_vertex(Pid pid, const std::string& name, Timestamp ts) {
+    const VertexId id = next_id_++;
+    Vertex v;
+    v.id = id;
+    v.type = EntityType::Process;
+    v.key = std::to_string(pid);
+    v.label = name.empty() ? ("pid:" + std::to_string(pid)) : name;
+    v.first_seen = ts;
+    v.last_seen = ts;
+    vertices_.emplace(id, std::move(v));
+    pid_index_[pid] = id;  // nút hiện hành cho pid (ghi đè instance cũ nếu tái dụng)
+    return id;
+}
+
+VertexId BehaviorGraph::resolve_process(Pid pid, const std::string& name, Timestamp ts) {
+    if (auto it = pid_index_.find(pid); it != pid_index_.end()) {
+        Vertex& v = vertices_[it->second];
+        v.last_seen = ts;
+        if (v.label.empty() && !name.empty())
+            v.label = name;
+        return it->second;
+    }
+    return new_process_vertex(pid, name, ts);
+}
+
 void BehaviorGraph::add_edge(VertexId src, VertexId dst, EventKind kind, Timestamp ts) {
-    adjacency_[src].push_back(Edge{src, dst, kind, ts});
+    const std::string ek = edge_key(src, dst, kind);
+    if (auto it = edge_index_.find(ek); it != edge_index_.end()) {
+        Edge& e = adjacency_[src][it->second];
+        e.last_ts = ts;
+        ++e.count;
+        return;
+    }
+    std::vector<Edge>& bucket = adjacency_[src];
+    edge_index_.emplace(ek, bucket.size());
+    bucket.push_back(Edge{src, dst, kind, ts, ts, 1});
     ++edge_count_;
 }
 
 void BehaviorGraph::ingest(const NormalizedEvent& ev) {
-    // Nút chủ thể (process).
-    VertexId proc = get_or_create_vertex(EntityType::Process, std::to_string(ev.pid),
-                                         ev.process_name, ev.timestamp);
-    pid_index_[ev.pid] = proc;
-
     switch (ev.kind) {
         case EventKind::ProcessCreate: {
-            // Liên kết nhân quả cha -> con.
+            // Tạo nút tiến trình con MỚI (xử lý PID tái dụng) + nối cha->con.
+            const VertexId child = new_process_vertex(ev.pid, ev.process_name, ev.timestamp);
             if (ev.ppid != 0) {
-                VertexId parent = get_or_create_vertex(EntityType::Process, std::to_string(ev.ppid),
-                                                       ev.parent_name, ev.timestamp);
-                add_edge(parent, proc, ev.kind, ev.timestamp);
+                const VertexId parent = resolve_process(ev.ppid, ev.parent_name, ev.timestamp);
+                add_edge(parent, child, ev.kind, ev.timestamp);
             }
-            break;
+            return;
         }
         case EventKind::ProcessTerminate: {
-            if (Vertex* v = find_vertex(proc))
-                v->alive = false;
-            break;
+            if (auto it = pid_index_.find(ev.pid); it != pid_index_.end()) {
+                if (Vertex* v = find_vertex(it->second))
+                    v->alive = false;
+            }
+            return;
         }
+        default:
+            break;
+    }
+
+    // Sự kiện tài nguyên: chủ thể là tiến trình hiện hành của pid.
+    const VertexId proc = resolve_process(ev.pid, ev.process_name, ev.timestamp);
+
+    switch (ev.kind) {
         case EventKind::FileRead:
         case EventKind::FileWrite:
         case EventKind::FileDelete:
         case EventKind::FileRename: {
-            VertexId f = get_or_create_vertex(EntityType::File, ev.target, ev.target, ev.timestamp);
+            const VertexId f =
+                get_or_create_vertex(EntityType::File, ev.target, ev.target, ev.timestamp);
             add_edge(proc, f, ev.kind, ev.timestamp);
             break;
         }
         case EventKind::RegSetValue:
         case EventKind::RegCreateKey:
         case EventKind::RegDeleteKey: {
-            VertexId r =
+            const VertexId r =
                 get_or_create_vertex(EntityType::Registry, ev.target, ev.target, ev.timestamp);
             add_edge(proc, r, ev.kind, ev.timestamp);
             break;
         }
         case EventKind::NetConnect: {
-            VertexId s =
+            const VertexId s =
                 get_or_create_vertex(EntityType::Socket, ev.target, ev.target, ev.timestamp);
             add_edge(proc, s, ev.kind, ev.timestamp);
             break;
         }
         case EventKind::DnsQuery: {
-            VertexId d = get_or_create_vertex(EntityType::Dns, ev.target, ev.target, ev.timestamp);
+            const VertexId d =
+                get_or_create_vertex(EntityType::Dns, ev.target, ev.target, ev.timestamp);
             add_edge(proc, d, ev.kind, ev.timestamp);
             break;
         }

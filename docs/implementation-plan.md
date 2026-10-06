@@ -212,32 +212,33 @@ Mục tiêu: đường ống Producer/Consumer chịu tải cao, lưu vết bề
 
 Mục tiêu: dựng đồ thị provenance streaming đúng và hiệu quả.
 
-### T4.1 — Rà soát & củng cố ingest/adjacency ⬜ (P0)
+### T4.1 — Rà soát & củng cố ingest/adjacency ✅ (P0)
 - **File:** `include/etwc/graph/behavior_graph.hpp`, `src/graph/behavior_graph.cpp`
-- **Chi tiết:** `ingest()` + `get_or_create_vertex` + `add_edge` đã có. Bổ sung:
-  chống trùng cạnh lặp (dedup theo (src,dst,kind) trong cửa sổ thời gian ngắn để
-  giảm bão log read/write); ghi `last_seen` cho cả process và resource; thống nhất
-  cách sinh `key` (đưa `make_key` ra chỗ tái dùng chung với index).
-- **DoD:** Test dựng đồ thị cho kịch bản cha→con→ghi file→kết nối mạng cho ra đúng
-  số nút/cạnh; mở rộng `test_behavior_graph.cpp`.
-- **Phụ thuộc:** T2.x (dữ liệu đầu vào), nhưng có thể test bằng NormalizedEvent giả.
+- **Đã làm:** **Dedup cạnh** theo `(src,dst,kind)` qua `edge_index_` → cạnh lặp
+  tăng `count` + cập nhật `last_ts` (giảm bão read/write). `last_seen` cập nhật cho
+  cả process và resource. Tách `resource_key`/`edge_key`. `Edge` mang `first_ts`,
+  `last_ts`, `count`.
+- **DoD:** ✅ Test cha→con→file→net (4 nút/3 cạnh); test dedup (5 lần đọc → 1 cạnh).
+- **Phụ thuộc:** T2.x.
 
-### T4.2 — Đảm bảo Partial Ordering & xử lý PID tái dụng ⬜ (P1)
-- **File:** `src/graph/behavior_graph.cpp`
-- **Chi tiết:** Định danh nút process theo `(pid, start_time)` thay vì chỉ pid, để
-  khi PID bị tái sử dụng sau terminate sẽ tạo nút mới thay vì trộn lịch sử. Ghi
-  chú thứ tự: cạnh vào (parent→child) phải tạo trước khi child phát sinh cạnh ra —
-  do luồng sự kiện ETW đã theo thời gian, chỉ cần không sắp xếp lại.
-- **DoD:** Kịch bản PID tái dụng cho ra 2 nút process tách biệt; không cạnh "xuyên đời".
-- **Phụ thuộc:** T4.1, T2.3.
-
-### T4.3 — Truy vấn & xuất đồ thị (phục vụ điều tra) ⬜ (P2)
-- **File:** `include/etwc/graph/behavior_graph.hpp`, file mới
-  `src/graph/graph_export.cpp`
-- **Chi tiết:** API export snapshot ra JSON/DOT (Graphviz) để trực quan hóa;
-  truy vấn tổ tiên/hậu duệ của một nút. Khóa đọc phù hợp nếu graph truy cập đa luồng.
-- **DoD:** Xuất được file `.dot` render bằng Graphviz cho một cây tiến trình mẫu.
+### T4.2 — Partial Ordering & xử lý PID tái dụng ✅ (P1)
+- **File:** `include/etwc/graph/behavior_graph.hpp`, `src/graph/behavior_graph.cpp`
+- **Đã làm:** Nút tiến trình quản lý qua `pid_index_` (pid→nút hiện hành), KHÔNG
+  dùng `index_`. Mỗi `ProcessCreate` tạo **nút tiến trình mới** và trỏ lại
+  `pid_index_` → PID tái dụng cho ra nút tách biệt, không trộn lịch sử. Sự kiện
+  tài nguyên dùng nút hiện hành của pid. Thứ tự giữ nguyên theo luồng ETW.
+- **DoD:** ✅ Test PID tái dụng → 2 nút tiến trình riêng.
 - **Phụ thuộc:** T4.1.
+
+### T4.3 — Xuất đồ thị (phục vụ điều tra) ✅ (P2)
+- **File:** `include/etwc/graph/behavior_graph.hpp`, `src/graph/graph_export.cpp`
+- **Đã làm:** `to_dot()` (Graphviz, màu/nhãn theo loại nút, nút chết nét đứt, cạnh
+  ghi `xN`) và `to_json()` (nlohmann, vertices+edges). Lệnh `--selftest` xuất
+  `data/graph.dot` + `data/graph.json` để xem không cần admin.
+- **DoD:** ✅ Test DOT/JSON chứa đúng nội dung; verify runtime: `--selftest` ra đồ
+  thị 5 nút/4 cạnh render được bằng Graphviz.
+- **Phụ thuộc:** T4.1.
+- **Còn lại (P2):** truy vấn tổ tiên/hậu duệ; khóa đọc nếu truy cập đa luồng.
 
 ---
 
